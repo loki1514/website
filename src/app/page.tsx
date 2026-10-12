@@ -77,7 +77,7 @@ export default function Home() {
                 <div className="mt-28 overflow-hidden rounded-3xl"><LoopVideo src="/video/dairy.mp4" /></div>
               </div>
               <div className="absolute inset-0 rounded-3xl bg-gradient-to-t from-background via-background/10 to-transparent" />
-              <div className="absolute bottom-0 left-1/2 w-[230px] -translate-x-1/2 sm:w-[255px]"><TiltCard className="rounded-[2.6rem]"><Phone src="/shots/app-home.webp" alt="The OneLocal app home screen" /></TiltCard></div>
+              <div className="absolute bottom-0 left-1/2 w-[230px] -translate-x-1/2 sm:w-[255px]"><TiltCard className="rounded-[2.6rem]"><Phone video="/video/app-demo.mp4" alt="The OneLocal app in action" /></TiltCard></div>
             </div>
           </div>
         </section>
