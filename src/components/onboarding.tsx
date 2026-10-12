@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, Pencil, Store, Truck, UtensilsCrossed, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, Copy, Pencil, Store, Truck, UtensilsCrossed, Wrench } from "lucide-react";
 import taxonomy from "@/lib/partner-taxonomy.json";
 import { API } from "@/lib/partners";
 import { MascotFollower, useMascot } from "@/components/mascot";
@@ -21,10 +21,10 @@ import { cn, randomKey } from "@/lib/utils";
 type PartnerType = "store" | "restaurant" | "service" | "logistic";
 type Form = {
   partner_type: PartnerType; business_name: string; owner_name: string; phone: string; email: string; consent: boolean;
-  category_family: string; category: string; subcategories: string[];
+  category_family: string; category: string; categories: string[]; subcategories: string[];
   address: string; pin_code: string; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
 };
-const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", subcategories: [], address: "", pin_code: "", outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true };
+const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address: "", pin_code: "", outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true };
 type Screen = "start" | "category" | "rtypes" | "business" | "finish";
 // Drafts saved on this browser before the flow was shortened point at screens that are now merged.
 const OLD_SCREENS: Record<string, Screen> = { family: "category", subcats: "category", account: "finish", review: "finish" };
@@ -83,6 +83,9 @@ export function Onboarding() {
       if (raw) {
         const s = JSON.parse(raw);
         const form: Form = { ...EMPTY, ...s.f };
+        // Drafts saved before categories became multiple-choice carry only `category`.
+        if (!Array.isArray(form.categories)) form.categories = [];
+        if (!form.categories.length && form.category) form.categories = [form.category];
         const want = OLD_SCREENS[s.screen] ?? s.screen;
         first = screensFor(form.partner_type).includes(want) ? want : "start";
         setF(form); setScreen(first); key.current = s.key;
@@ -131,13 +134,13 @@ export function Onboarding() {
 
   const set = useCallback(<K extends keyof Form>(k: K, v: Form[K]) => { setF(p => ({ ...p, [k]: v })); setError(null); }, []);
   const family = taxonomy.store.families.find(x => x.name === f.category_family);
-  const categories = f.partner_type === "store" ? family?.categories ?? [] : taxonomy.service.categories;
-  const category = categories.find(c => c.name === f.category);
+  const catList = f.partner_type === "store" ? family?.categories ?? [] : taxonomy.service.categories;
+  const category = catList.find(c => c.name === f.categories[0]);
   const hero = (f.partner_type === "store" || f.partner_type === "service") ? category?.store ?? null : null;
 
   const check = (s: Screen): string | null => {
     if (s === "start") return f.business_name.trim().length < 2 ? "Enter your business name." : f.owner_name.trim().length < 2 ? "Enter the owner's full name." : !phoneOk(f.phone) ? "Enter a 10-digit mobile number." : !emailOk(f.email) ? "Enter a valid email." : !f.consent ? "Please agree so we can save your draft." : null;
-    if (s === "category") return f.partner_type === "store" && !f.category_family ? "Choose Shops or Grocery first." : !f.category ? "Choose a category." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
+    if (s === "category") return f.partner_type === "store" && !f.category_family ? "Choose Shops or Grocery first." : !f.categories.length ? "Choose at least one category." : f.subcategories.length > 30 ? "Tick up to 30 items." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
     if (s === "rtypes") return f.subcategories.length ? null : "Pick at least one type of food.";
     if (s === "business") return f.address.trim().length < 5 ? "Enter your shop address." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : f.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(f.gstin.toUpperCase()) ? "GSTIN looks wrong (15 characters)." : f.fssai && !/^\d{14}$/.test(f.fssai) ? "FSSAI licence is 14 digits." : null;
     if (s === "finish") return !passwordOk(pw.password) ? "Password needs 8+ characters with a letter and a number." : pw.password !== pw.confirm ? "The two passwords don’t match." : null;
@@ -171,8 +174,19 @@ export function Onboarding() {
     go(flow[index + 1], 1);
   };
   const jump = (s: Screen) => { if (s !== screen) go(s, flow.indexOf(s) < index ? -1 : 1); };
-  const pickFamily = (v: string) => { say(`family.${v}`, "excited"); setF(p => ({ ...p, category_family: v, category: p.category_family === v ? p.category : "", subcategories: p.category_family === v ? p.subcategories : [] })); setError(null); };
-  const pickCategory = (v: string) => { say("category", "happy", { name: v }); setF(p => ({ ...p, category: v, subcategories: p.category === v ? p.subcategories : [] })); setError(null); };
+  const pickFamily = (v: string) => { say(`family.${v}`, "excited"); setF(p => p.category_family === v ? p : ({ ...p, category_family: v, category: "", categories: [], subcategories: [] })); setError(null); };
+  // Categories are multiple-choice. The first pick is the primary category; unticking one also unticks the items
+  // that only it offered.
+  const pickCategory = (v: string) => {
+    const adding = !f.categories.includes(v);
+    if (adding) say("category", "happy", { name: v }); else react("curious", 800);
+    setF(p => {
+      const cats = p.categories.includes(v) ? p.categories.filter(x => x !== v) : [...p.categories, v];
+      const allowed = new Set(catList.filter(c => cats.includes(c.name)).flatMap(c => c.subcategories));
+      return { ...p, categories: cats, category: cats[0] ?? "", subcategories: p.subcategories.filter(x => allowed.has(x)) };
+    });
+    setError(null);
+  };
   const toggle = (v: string) => { const adding = !f.subcategories.includes(v); if (adding) say(f.partner_type === "restaurant" ? "restaurantType" : "subcat", "happy", { name: v }); else react("curious", 800); setF(p => ({ ...p, subcategories: p.subcategories.includes(v) ? p.subcategories.filter(x => x !== v) : [...p.subcategories, v] })); setError(null); };
 
   const variants = {
@@ -358,7 +372,7 @@ function Start({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[
 }
 // Changing the partner type changes what the next steps ask, so the earlier picks are cleared.
 function setF_type(set: <K extends keyof Form>(k: K, v: Form[K]) => void, t: PartnerType) {
-  set("partner_type", t); set("category_family", ""); set("category", ""); set("subcategories", []);
+  set("partner_type", t); set("category_family", ""); set("category", ""); set("categories", []); set("subcategories", []);
 }
 
 // One tile in a grid of choices (store type, category, food type).
@@ -389,16 +403,18 @@ function WhatYouSell({ f, onFamily, onCategory, onToggle }: { f: Form; onFamily:
   const store = f.partner_type === "store";
   const family = taxonomy.store.families.find(x => x.name === f.category_family);
   const cats = store ? family?.categories ?? [] : taxonomy.service.categories;
-  const cat = cats.find(c => c.name === f.category);
+  // Picked categories in pick order; each gets its own list of items below the grid.
+  const picked = f.categories.map(n => cats.find(c => c.name === n)).filter((c): c is (typeof cats)[number] => !!c);
+  const last = picked[picked.length - 1]?.name;
   const items = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!cat) return;
+    if (!last) return;
     const t = setTimeout(() => items.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 200);
     return () => clearTimeout(t);
-  }, [cat]);
+  }, [last]);
   return <>
     <h2 className={H2}>{store ? "What do you sell?" : "What service do you offer?"}</h2>
-    <p className="mt-1 text-[#5E6E65]">{store ? "Pick your shop type and category, then tick what you sell." : "Pick a category, then tick the services you offer."}</p>
+    <p className="mt-1 text-[#5E6E65]">{store ? "Pick your shop type and one or more categories, then tick what you sell." : "Pick one or more categories, then tick the services you offer."}</p>
     {store && <>
       <Heading>Shop type</Heading>
       <div role="radiogroup" aria-label="Shop type" className="grid gap-2.5 sm:grid-cols-2">
@@ -406,21 +422,21 @@ function WhatYouSell({ f, onFamily, onCategory, onToggle }: { f: Form; onFamily:
       </div>
     </>}
     {cats.length > 0 && <>
-      <Heading right={`${cats.length} options`}>Category</Heading>
-      <div role="radiogroup" aria-label="Category" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-        {cats.map((c, i) => <Tile key={c.name} i={i} name={c.name} slug={c.icon} on={f.category === c.name} onClick={() => onCategory(c.name)} />)}
+      <Heading right={f.categories.length ? `${f.categories.length} selected` : `${cats.length} options · pick any`}>Categories</Heading>
+      <div role="group" aria-label="Categories" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {cats.map((c, i) => <Tile key={c.name} i={i} multi name={c.name} slug={c.icon} on={f.categories.includes(c.name)} onClick={() => onCategory(c.name)} />)}
       </div>
     </>}
-    <AnimatePresence mode="wait">
-      {cat && (
-        <motion.div ref={items} key={cat.name} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-5 scroll-mb-28 rounded-2xl border border-[#E2E8E3] bg-white p-4">
+    <AnimatePresence initial={false}>
+      {picked.map(cat => (
+        <motion.div ref={cat.name === last ? items : undefined} key={cat.name} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-5 scroll-mb-28 rounded-2xl border border-[#E2E8E3] bg-white p-4">
           <div className="mb-3 flex items-baseline justify-between gap-3 text-sm">
             <span className="font-semibold">{store ? `What do you sell in ${cat.name}?` : `Which ${cat.name} services do you offer?`}</span>
-            <span className="shrink-0 text-[#3FAE49]">{f.subcategories.length} selected</span>
+            <span className="shrink-0 text-[#3FAE49]">{cat.subcategories.filter(x => f.subcategories.includes(x)).length} selected</span>
           </div>
           <div className="flex flex-wrap gap-2">{cat.subcategories.map(s => <Chip key={s} label={s} on={f.subcategories.includes(s)} onClick={() => onToggle(s)} />)}</div>
         </motion.div>
-      )}
+      ))}
     </AnimatePresence>
   </>;
 }
@@ -474,8 +490,8 @@ function Finish({ f, pw, setPw, goto }: { f: Form; pw: { password: string; confi
 
   const type = taxonomy.types.find(t => t.id === f.partner_type)?.title ?? "";
   const what: { screen: Screen; rows: [string, string][] } | null =
-    f.partner_type === "store" ? { screen: "category", rows: [["Shop type", f.category_family], ["Category", f.category], ["Sells", f.subcategories.join(", ")]] }
-    : f.partner_type === "service" ? { screen: "category", rows: [["Category", f.category], ["Services", f.subcategories.join(", ")]] }
+    f.partner_type === "store" ? { screen: "category", rows: [["Shop type", f.category_family], ["Categories", f.categories.join(", ")], ["Sells", f.subcategories.join(", ")]] }
+    : f.partner_type === "service" ? { screen: "category", rows: [["Categories", f.categories.join(", ")], ["Services", f.subcategories.join(", ")]] }
     : f.partner_type === "restaurant" ? { screen: "rtypes", rows: [["Food", f.subcategories.join(", ")]] }
     : null;
   const where: [string, string][] = [["Address", `${f.address}, ${f.pin_code}`], ["Outlets", f.outlets || "1"], ...(f.gstin ? [["GSTIN", f.gstin] as [string, string]] : []), ...(f.fssai ? [["FSSAI", f.fssai] as [string, string]] : [])];
@@ -519,6 +535,26 @@ function Summary({ title, rows, onEdit }: { title: string; rows: [string, string
   );
 }
 
+// Copies the application reference; falls back to a hidden text box where the clipboard API is blocked (plain http on a phone).
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const t = document.createElement("textarea");
+      t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove();
+    }
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button type="button" onClick={copy} aria-label={copied ? "Reference copied" : "Copy reference"}
+      className={cn("mx-auto mt-3 flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-bold transition-colors", copied ? "border-[#3FAE49] bg-[#3FAE49] text-white" : "border-[#CFE3D2] bg-[#F3FAF3] text-[#2E7D32] hover:border-[#3FAE49]")}>
+      {copied ? <Check className="size-4" strokeWidth={3} /> : <Copy className="size-4" />}{copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 function Done({ reference, existing, business, email, login }: { reference: string; existing: boolean; business: string; email: string; login?: string }) {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-md pt-6 text-center">
@@ -528,8 +564,9 @@ function Done({ reference, existing, business, email, login }: { reference: stri
       {login && <p className="mx-auto mt-4 max-w-sm rounded-xl bg-white px-4 py-3 text-sm text-[#4A5A50] ring-1 ring-[#E2E8E3]">{login === "exists"
         ? <>This email already has a OneLocal login. Use that password in the VINII Partner app.</>
         : login === "confirm_email" ? <>Check <b>{email}</b> and confirm your email, then sign in to the VINII Partner app.</>
+        : login === "failed" ? <>Your application is in, but we could not set up your login just now. We will help you with it when we call.</>
         : <>Your login is ready: sign in to the VINII Partner app with <b>{email}</b>. Your store appears there once it is approved.</>}</p>}
-      <div className="mx-auto mt-6 w-fit rounded-2xl border border-dashed border-[#3FAE49] bg-white px-6 py-4"><p className="text-xs tracking-widest text-[#6B7A72] uppercase">Your reference</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p></div>
+      <div className="mx-auto mt-6 w-fit rounded-2xl border border-dashed border-[#3FAE49] bg-white px-6 py-4"><p className="text-xs tracking-widest text-[#6B7A72] uppercase">Your reference</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
       <Link href="/" className="mt-8 inline-block text-sm font-semibold text-[#3FAE49] hover:underline">Back to home</Link>
     </motion.div>
   );
