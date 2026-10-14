@@ -7,6 +7,13 @@
 const BACKEND = (process.env.ONELOCAL_API_ORIGIN ?? "http://localhost:8100").replace(/\/$/, "");
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY;
+// The application function is called with the server-only secret key when one is set, so the public (anon) role
+// never needs EXECUTE on it. Supabase's Security Advisor flags anon-executable SECURITY DEFINER functions, and
+// revoking that grant is what broke sign-ups on 14 Oct 2026 ("permission denied for function ..."). This key must
+// never be exposed to the browser: no NEXT_PUBLIC_ prefix.
+const SUPABASE_RPC_KEY = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_KEY;
+// Where the confirmation email sends people: the website's own /auth/confirm page, never a supabase.co address.
+const SITE_URL = process.env.PUBLIC_SITE_URL?.replace(/\/$/, "");
 
 type Login = "created" | "exists" | "confirm_email" | "failed";
 const bad = (detail: string) => Response.json({ detail }, { status: 400 });
@@ -25,9 +32,9 @@ function passwordProblem(password: unknown, phone: string, email: string): strin
 // Supabase's own sign-up, so the project's rules apply (password strength, email confirmation when switched on).
 // An email that already has an account comes back as a user with no identities (or a 422), never as an error
 // that could be used to probe which emails exist.
-async function createLogin(email: string, password: string, meta: Record<string, string>): Promise<Login> {
+async function createLogin(email: string, password: string, meta: Record<string, string>, site: string): Promise<Login> {
   try {
-    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup?redirect_to=${encodeURIComponent(`${site}/auth/confirm`)}`, {
       method: "POST",
       headers: { "content-type": "application/json", apikey: SUPABASE_KEY!, authorization: `Bearer ${SUPABASE_KEY}` },
       body: JSON.stringify({ email, password, data: meta }),
@@ -70,7 +77,7 @@ export async function POST(request: Request) {
       // so the form must be wrapped as { payload: {...} }; a flat body is a 404 (PGRST202).
       const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/submit_partner_application`, {
         method: "POST",
-        headers: { "content-type": "application/json", apikey: SUPABASE_KEY, authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { "content-type": "application/json", apikey: SUPABASE_RPC_KEY!, authorization: `Bearer ${SUPABASE_RPC_KEY}` },
         body: JSON.stringify({ payload: fields }),
         cache: "no-store",
       });
@@ -88,7 +95,7 @@ export async function POST(request: Request) {
       if (submit && !receipt.existing) {
         receipt.login = await createLogin(email, password as string, {
           full_name: String(fields.owner_name ?? ""), business_name: String(fields.business_name ?? ""), signup_source: "partner_website",
-        });
+        }, SITE_URL ?? new URL(request.url).origin);
       }
       return Response.json(receipt, { status: 201 });
     }
