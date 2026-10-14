@@ -33,6 +33,23 @@ function passwordProblem(password: unknown, phone: string, email: string): strin
 // An email that already has an account comes back as a user with no identities (or a 422), never as an error
 // that could be used to probe which emails exist.
 async function createLogin(email: string, password: string, meta: Record<string, string>, site: string): Promise<Login> {
+  // With the server-only key, the login is created already confirmed through the Auth admin API. No Supabase
+  // email goes out and nobody is sent to a supabase.co page; the Latur team verifies the partner on the call.
+  if (SUPABASE_RPC_KEY && SUPABASE_RPC_KEY !== SUPABASE_KEY) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+        method: "POST",
+        headers: { "content-type": "application/json", apikey: SUPABASE_RPC_KEY, authorization: `Bearer ${SUPABASE_RPC_KEY}` },
+        body: JSON.stringify({ email, password, email_confirm: true, user_metadata: meta }),
+        cache: "no-store",
+      });
+      if (r.ok) return "created";
+      const j = (await r.json().catch(() => ({}))) as { error_code?: string; code?: string };
+      return [j.error_code, j.code].some((c) => c === "email_exists" || c === "user_already_exists") ? "exists" : "failed";
+    } catch {
+      return "failed";
+    }
+  }
   try {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/signup?redirect_to=${encodeURIComponent(`${site}/auth/confirm`)}`, {
       method: "POST",

@@ -17,6 +17,10 @@
   again and someone may remove it again. Email confirmation now lands on `/auth/confirm` on the website, which spends
   the token server-to-server, so partners never see supabase.co. Confirmation needs a button tap so that email link
   scanners cannot use up the link before the partner opens it.
+- **Follow-up the same day:** the founder asked that partners never see a Supabase email or page. When the
+  server-only key is set, the website now creates the partner's login already confirmed (Supabase Auth admin API),
+  so no confirmation email is sent and the success screen says the login is ready. The Latur team's verification
+  call replaces the email check. Without the key, the old email-confirmation path remains as a fallback.
 - **What works now:** Once the secret key is set, sign-ups save again. Confirmation emails (after the template change
   below) open a OneLocal-branded page that confirms the email and tells the partner to sign in to VINII Partner.
 - **Left undone (needs the founder, outside the code):**
