@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, Check, Printer } from "lucide-react";
+import { Bell, Check, Printer, Smartphone } from "lucide-react";
 import { Marquee } from "@/components/marquee";
 import { Accordion } from "@/components/accordion";
 import { SiteHeader } from "@/components/site-header";
@@ -26,6 +26,9 @@ const FAQ = [
   { question: "When do I get paid?", answer: "Payout timing is confirmed with you during onboarding." },
   { question: "Can I use my own delivery staff?", answer: "Yes. Tell us in the form, and you can still call OneLocal riders when you need them." },
 ];
+
+// Direct APK download for the VINII Partner app; the URL always serves the newest GitHub release.
+const PARTNER_APP_APK = "https://github.com/proviyaaretailtech/vinii-partner-app/releases/latest/download/vinii-partner.apk";
 
 function Cta({ children = "Apply in 2 minutes", dark = false }: { children?: React.ReactNode; dark?: boolean }) {
   return (
@@ -58,7 +61,11 @@ export default function Home() {
               <div className="mt-8 flex flex-wrap items-center gap-4">
                 <MagneticCta>Apply in 2 minutes →</MagneticCta>
                 <a href="#try" className="rounded-full border border-white/15 px-6 py-4 text-base font-semibold transition-colors hover:bg-white/5">Try a demo order</a>
+                <a href={PARTNER_APP_APK} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-6 py-4 text-base font-semibold transition-colors hover:bg-white/5">
+                  <Smartphone className="size-5" aria-hidden /> Download Partner app
+                </a>
               </div>
+              <p className="mt-3 text-xs text-muted-foreground">Android · direct APK — tap “allow from this source” when your phone asks.</p>
               <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-3">
                 <div className="flex -space-x-3">
                   {PARTNERS.slice(0, 5).map(p => (
@@ -194,7 +201,12 @@ export default function Home() {
         <section className="border-t border-white/5" data-mascot-tip="Ready? It takes two minutes, and we call you after.">
           <div className="mx-auto max-w-6xl px-5 py-24">
             <h2 className="max-w-3xl text-4xl font-extrabold tracking-[-0.03em] sm:text-6xl">Latur is ordering. <span className="neon">Be the one they find.</span></h2>
-            <div className="mt-8"><Cta>Become a partner</Cta></div>
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <Cta>Become a partner</Cta>
+              <a href={PARTNER_APP_APK} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-6 py-4 text-base font-semibold transition-colors hover:bg-white/5">
+                <Smartphone className="size-5" aria-hidden /> Already a partner? Get the app
+              </a>
+            </div>
             <div className="mt-12 overflow-hidden rounded-[2rem] border border-white/10 shadow-[0_40px_100px_-30px_rgba(0,0,0,0.9)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/photo/onelocal-banner.webp" alt="A OneLocal rider shows the app in front of a street of neighbourhood shops: fruits and vegetables, daily needs, dairy, pharmacy, restaurant, café and bakery." className="h-auto w-full" />
