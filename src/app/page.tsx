@@ -27,8 +27,8 @@ const FAQ = [
   { question: "Can I use my own delivery staff?", answer: "Yes. Tell us in the form, and you can still call OneLocal riders when you need them." },
 ];
 
-// Direct APK download for the VINII Partner app; the URL always serves the newest GitHub release.
-const PARTNER_APP_APK = "https://github.com/proviyaaretailtech/vinii-partner-app/releases/latest/download/vinii-partner.apk";
+// Direct APK download for the VINII Partner app: the newest release in the releases-only repo (no source code there).
+const PARTNER_APP_APK = "https://github.com/proviyaaretailtech/vinii-partner-releases/releases/latest/download/vinii-partner.apk";
 
 function Cta({ children = "Apply in 2 minutes", dark = false }: { children?: React.ReactNode; dark?: boolean }) {
   return (
