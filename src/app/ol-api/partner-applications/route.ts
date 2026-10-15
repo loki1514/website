@@ -11,7 +11,8 @@ const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABAS
 // never needs EXECUTE on it. Supabase's Security Advisor flags anon-executable SECURITY DEFINER functions, and
 // revoking that grant is what broke sign-ups on 14 Oct 2026 ("permission denied for function ..."). This key must
 // never be exposed to the browser: no NEXT_PUBLIC_ prefix.
-const SUPABASE_RPC_KEY = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_RPC_KEY = SERVICE_KEY ?? SUPABASE_KEY;
 // Where the confirmation email sends people: the website's own /auth/confirm page, never a supabase.co address.
 const SITE_URL = process.env.PUBLIC_SITE_URL?.replace(/\/$/, "");
 
@@ -32,7 +33,7 @@ function passwordProblem(password: unknown, phone: string, email: string): strin
 // Supabase's own sign-up, so the project's rules apply (password strength, email confirmation when switched on).
 // An email that already has an account comes back as a user with no identities (or a 422), never as an error
 // that could be used to probe which emails exist.
-async function createLogin(email: string, password: string, meta: Record<string, string>, site: string): Promise<Login> {
+async function createLogin(email: string, password: string, meta: Record<string, string>, site: string): Promise<{ state: Login; id?: string }> {
   // With the server-only key, the login is created already confirmed through the Auth admin API. No Supabase
   // email goes out and nobody is sent to a supabase.co page; the Latur team verifies the partner on the call.
   if (SUPABASE_RPC_KEY && SUPABASE_RPC_KEY !== SUPABASE_KEY) {
@@ -43,11 +44,11 @@ async function createLogin(email: string, password: string, meta: Record<string,
         body: JSON.stringify({ email, password, email_confirm: true, user_metadata: meta }),
         cache: "no-store",
       });
-      if (r.ok) return "created";
-      const j = (await r.json().catch(() => ({}))) as { error_code?: string; code?: string };
-      return [j.error_code, j.code].some((c) => c === "email_exists" || c === "user_already_exists") ? "exists" : "failed";
+      const j = (await r.json().catch(() => ({}))) as { id?: string; error_code?: string; code?: string };
+      if (r.ok) return { state: "created", id: j.id };
+      return { state: [j.error_code, j.code].some((c) => c === "email_exists" || c === "user_already_exists") ? "exists" : "failed" };
     } catch {
-      return "failed";
+      return { state: "failed" };
     }
   }
   try {
@@ -57,13 +58,34 @@ async function createLogin(email: string, password: string, meta: Record<string,
       body: JSON.stringify({ email, password, data: meta }),
       cache: "no-store",
     });
-    const j = (await r.json().catch(() => ({}))) as { access_token?: string; user?: { identities?: unknown[] }; identities?: unknown[]; error_code?: string; code?: string };
-    if (!r.ok) return j.error_code === "user_already_exists" || j.code === "user_already_exists" ? "exists" : "failed";
-    if (j.access_token) return "created";
+    const j = (await r.json().catch(() => ({}))) as { access_token?: string; id?: string; user?: { id?: string; identities?: unknown[] }; identities?: unknown[]; error_code?: string; code?: string };
+    if (!r.ok) return { state: j.error_code === "user_already_exists" || j.code === "user_already_exists" ? "exists" : "failed" };
+    if (j.access_token) return { state: "created", id: j.user?.id ?? j.id };
     const identities = j.user?.identities ?? j.identities;
-    return Array.isArray(identities) && identities.length === 0 ? "exists" : "confirm_email";
+    return Array.isArray(identities) && identities.length === 0 ? { state: "exists" } : { state: "confirm_email", id: j.user?.id ?? j.id };
   } catch {
-    return "failed";
+    return { state: "failed" };
+  }
+}
+
+// Links the login that was just created to the application and makes the partner's store (Pending until approved), database
+// function ol_partner_application_attach_login (migration 0345). The database only accepts a login created in the last hour with
+// the application's own email, so an email that already had an account is never linked. True when the reference now works as the
+// app code. Never throws: the sign-up has already worked.
+async function attachLogin(reference: string, userId: string): Promise<boolean> {
+  if (!SERVICE_KEY) return false;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_attach_login`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_reference: reference, p_user: userId }),
+      cache: "no-store",
+    });
+    if (!r.ok) return false;
+    const j = (await r.json().catch(() => ({}))) as { linked?: boolean };
+    return j.linked === true;
+  } catch {
+    return false;
   }
 }
 
@@ -106,13 +128,16 @@ export async function POST(request: Request) {
         const formProblem = parsed.code === "P0400" || r.status < 500;
         return Response.json({ detail: parsed.message ?? parsed.detail ?? "Please check the form and try again." }, { status: formProblem ? 400 : 502 });
       }
-      const receipt = JSON.parse(text) as { reference: string; status: string; existing: boolean; login?: Login };
+      const receipt = JSON.parse(text) as { reference: string; status: string; existing: boolean; login?: Login; app_code?: boolean };
       // The application is saved first; only a new submission creates the login, so a failed save or a repeat
       // submit never makes a stray account. If the login fails the application still stands, and the answer says so.
       if (submit && !receipt.existing) {
-        receipt.login = await createLogin(email, password as string, {
+        const made = await createLogin(email, password as string, {
           full_name: String(fields.owner_name ?? ""), business_name: String(fields.business_name ?? ""), signup_source: "partner_website",
         }, SITE_URL ?? new URL(request.url).origin);
+        receipt.login = made.state;
+        // The reference is also the app code, but only when the login really belongs to this application.
+        receipt.app_code = made.state === "created" && !!made.id ? await attachLogin(receipt.reference, made.id) : false;
       }
       return Response.json(receipt, { status: 201 });
     }
