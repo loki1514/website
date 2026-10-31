@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Privacy Policy · OneLocal POS", des
 
 export default function Privacy() {
   return (
-    <LegalPage title="Privacy Policy">
+    <LegalPage title="Privacy Policy" updated="1 November 2026">
       <p>This policy explains how {LEGAL.company} (“we”, “OneLocal”) handles personal information in the {LEGAL.product} app and the OneLocal partner website. The app is for business owners and staff in India who sell through OneLocal. It is not for children: you must be 18 or older.</p>
 
       <h2>1. What we collect</h2>
@@ -23,7 +23,7 @@ export default function Privacy() {
           <tr><td>Your agreement choices (terms, privacy notice, optional marketing updates) and the time you gave them</td><td>At sign-up</td></tr>
         </tbody>
       </table>
-      <p>We do not ask for your bank PIN, OTP or internet-banking password. The app does not use your location, contacts, camera or microphone. Files are chosen by you through the phone’s file chooser.</p>
+      <p>We do not ask for your bank PIN, OTP or internet-banking password. The app asks for your phone’s location only when you add an outlet and choose to use your current location, to pin the outlet’s address on the map. It does not follow your location in the background, and it does not use your contacts, camera or microphone. Files are chosen by you through the phone’s file chooser.</p>
 
       <h2>2. Why we use it</h2>
       <ul>
