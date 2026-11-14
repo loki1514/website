@@ -10,7 +10,7 @@ const deva = Noto_Sans_Devanagari({ variable: "--font-deva", subsets: ["devanaga
 
 export const metadata: Metadata = {
   title: "Partner with OneLocal · Sell to every phone in Latur",
-  description: "Restaurants, grocers, pharmacies and shops in Latur: join OneLocal and take orders on the app, with the VINII Partner app and POS.",
+  description: "Restaurants, grocers, pharmacies and shops in Latur: join One Local and take orders on the app, with the One Local Partner app and POS.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

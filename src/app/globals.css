@@ -158,6 +158,9 @@
 .neon-glow { box-shadow: 0 0 0 1px oklch(0.9 0.24 128 / 40%), 0 0 40px oklch(0.9 0.24 128 / 25%); }
 .grain { background-image: radial-gradient(oklch(1 0 0 / 5%) 1px, transparent 1px); background-size: 22px 22px; }
 @keyframes logos { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* On a phone the floating mascot would sit on top of the words being read, so it stays out of the way there. */
+@media (max-width: 767px) { [data-ol-floating] { display: none; } }
+
 /* Onboarding: the sticky header and footer must never hide the field the browser scrolls to. */
 html:has([data-onboarding]) { scroll-padding-top: 150px; scroll-padding-bottom: 110px; }
 
