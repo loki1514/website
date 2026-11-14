@@ -62,7 +62,7 @@ export function Onboarding() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ reference: string; existing: boolean; login?: string; appCode?: boolean } | null>(null);
+  const [done, setDone] = useState<{ reference: string | null; existing: boolean; login?: string; appCode?: boolean } | null>(null);
   const key = useRef("");
 
   const flow = screensFor(f.partner_type);
@@ -151,7 +151,7 @@ export function Onboarding() {
     const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, gstin: f.gstin.toUpperCase(), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
     const body = r ? await r.json().catch(() => ({})) : {};
     if (!r || !r.ok) throw new Error(body?.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
-    return body as { reference: string; existing: boolean; status: string; login?: string; app_code?: boolean };
+    return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean };
   };
 
   const next = async () => {
@@ -555,7 +555,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function Done({ reference, existing, business, email, login, appCode }: { reference: string; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
+function Done({ reference, existing, business, email, login, appCode }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-md pt-6 text-center">
       <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300, damping: 14, delay: 0.1 }} className="mx-auto grid size-16 place-items-center rounded-full bg-[#3FAE49] text-white"><Check className="size-8" strokeWidth={3} /></motion.div>
@@ -568,7 +568,9 @@ function Done({ reference, existing, business, email, login, appCode }: { refere
         : login === "confirm_email" ? <>Check <b>{email}</b> and confirm your email, then sign in to the VINII Partner app.</>
         : login === "failed" ? <>Your application is in, but we could not set up your login just now. We will help you with it when we call.</>
         : <>Your login is ready: sign in to the VINII Partner app with <b>{email}</b>. Your store appears there once it is approved.</>}</p>}
-      <div className="mx-auto mt-6 w-fit rounded-2xl border border-dashed border-[#3FAE49] bg-white px-6 py-4"><p className="text-xs tracking-widest text-[#6B7A72] uppercase">{appCode ? "Your app code" : "Your reference"}</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
+      {reference
+        ? <div className="mx-auto mt-6 w-fit rounded-2xl border border-dashed border-[#3FAE49] bg-white px-6 py-4"><p className="text-xs tracking-widest text-[#6B7A72] uppercase">{appCode ? "Your app code" : "Your reference"}</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
+        : <p className="mx-auto mt-6 max-w-sm rounded-xl bg-white px-4 py-3 text-sm text-[#4A5A50] ring-1 ring-[#E2E8E3]">We already have an application for this phone number. For your safety we do not show its code here. Our Latur team will call you, or sign in to the app with your email and password.</p>}
       <Link href="/" className="mt-8 inline-block text-sm font-semibold text-[#3FAE49] hover:underline">Back to home</Link>
     </motion.div>
   );

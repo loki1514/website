@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal-page";
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Privacy Policy · OneLocal POS", description: "What the OneLocal POS app collects, why, who sees it, how long we keep it and how to delete it." };
+export const metadata: Metadata = { title: "Privacy Policy · OneLocal Partner", description: "What the OneLocal Partner app collects, why, who sees it, how long we keep it and how to delete it." };
 
 export default function Privacy() {
   return (

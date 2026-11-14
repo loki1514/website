@@ -2,19 +2,19 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal-page";
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Delete your account · OneLocal POS", description: "How to ask OneLocal to delete your OneLocal POS account and the personal data attached to it." };
+export const metadata: Metadata = { title: "Delete your account · OneLocal Partner", description: "How to ask OneLocal to delete your OneLocal Partner account and the personal data attached to it." };
 
-const subject = encodeURIComponent("Delete my OneLocal POS account");
-const body = encodeURIComponent("Please delete my OneLocal POS account.\n\nName:\nPhone number on the account:\nEmail on the account:\nBusiness name:\n");
+const subject = encodeURIComponent("Delete my OneLocal Partner account");
+const body = encodeURIComponent("Please delete my OneLocal Partner account.\n\nName:\nPhone number on the account:\nEmail on the account:\nBusiness name:\n");
 
 export default function DeleteAccount() {
   return (
-    <LegalPage title="Delete your OneLocal POS account">
+    <LegalPage title="Delete your OneLocal Partner account">
       <p>You can ask us to delete your {LEGAL.product} account and the personal data attached to it. You do not need to install the app to ask.</p>
 
       <h2>How to ask</h2>
       <ol className="mt-3 list-decimal space-y-1.5 pl-6">
-        <li>Send an email to <a href={`mailto:${LEGAL.contactEmail}?subject=${subject}&body=${body}`}>{LEGAL.contactEmail}</a> from the email address on your account, with the subject “Delete my OneLocal POS account”. If you cannot use that address, include the phone number and business name on the account.</li>
+        <li>Send an email to <a href={`mailto:${LEGAL.contactEmail}?subject=${subject}&body=${body}`}>{LEGAL.contactEmail}</a> from the email address on your account, with the subject “Delete my OneLocal Partner account”. If you cannot use that address, include the phone number and business name on the account.</li>
         <li>We will confirm that the request is really from you (for example by a code sent to the phone number on the account).</li>
         <li>We will finish within {LEGAL.deletionDays} days of confirming, and tell you when it is done. If you have an open order or unpaid balance we will tell you what must be settled first.</li>
       </ol>
