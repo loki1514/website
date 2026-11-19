@@ -3,9 +3,11 @@
 // (NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY, restricted in Google Cloud to this site's addresses; APIs: Maps JavaScript + Geocoding).
 //
 // The pin stands still in the middle of the map and the partner drags the map under it until the pin's tip is on the shop's door
-// (easier on a phone than grabbing a small marker). Nothing counts as pinned until the map has been moved, searched or located:
-// the opening view of Latur is never sent as the shop. Each new spot looks up Google's address for it, which fills the street and
-// area and the PIN code while those boxes are empty. Without a key the map is left out and "Use my current location" still works.
+// (easier on a phone than grabbing a small marker), or searches Google's places (suggestions while typing, Places API New on the
+// key; else Enter finds it with the Geocoding API). Nothing counts as pinned until the map has been moved or a place picked: the
+// opening view of Latur is never sent as the shop. Each new spot looks up Google's address for it, which fills the street and
+// area and the PIN code while those boxes are empty. Only when the map cannot load at all (no key, or the key refuses this
+// address) is "Use my current location" offered, so a partner is never stuck: the database needs a pin (0728).
 import { useEffect, useRef, useState } from "react";
 import { LocateFixed, MapPin as PinIcon, Search } from "lucide-react";
 
@@ -54,6 +56,11 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // Google place suggestions while typing (Places API, New): text to show, and the prediction to open
+  const [hits, setHits] = useState<{ main: string; sub: string; pred: any }[]>([]);
+  const [open, setOpen] = useState(false);
+  const places = useRef<any>(null);       // the Places library, once loaded; false when this key cannot use it
+  const session = useRef<any>(null);      // one autocomplete session per search, as Google bills it
   const [spot, setSpot] = useState<string | null>(null);
 
   const lookUp = async (p: Pin): Promise<Found | null> => {
@@ -113,7 +120,39 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
     );
   };
 
-  // Search an area, street or landmark, kept to Latur.
+  // Suggestions as the partner types, kept near Latur. Without the Places API on the key, Enter still finds the place (search below).
+  useEffect(() => {
+    const q = query.trim();
+    if (state !== "ready" || q.length < 3) { setHits([]); return; }
+    let gone = false;
+    const t = setTimeout(async () => {
+      try {
+        if (places.current === null) places.current = await window.google.maps.importLibrary("places").catch(() => false);
+        if (!places.current || gone) return;
+        session.current ??= new places.current.AutocompleteSessionToken();
+        const { suggestions } = await places.current.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          input: q, sessionToken: session.current, includedRegionCodes: ["in"], locationBias: { center: LATUR, radius: 40000 },
+        });
+        if (gone) return;
+        setHits((suggestions ?? []).map((x: any) => x.placePrediction).filter(Boolean).slice(0, 5)
+          .map((pr: any) => ({ main: pr.mainText?.text ?? pr.text?.text ?? "", sub: pr.secondaryText?.text ?? "", pred: pr })));
+        setOpen(true);
+      } catch { if (!gone) setHits([]); }
+    }, 250);
+    return () => { gone = true; clearTimeout(t); };
+  }, [query, state]);
+
+  const pick = async (h: { main: string; sub: string; pred: any }) => {
+    setOpen(false); setHits([]); setQuery(h.sub ? `${h.main}, ${h.sub}` : h.main); setNote(null);
+    try {
+      const place = h.pred.toPlace();
+      await place.fetchFields({ fields: ["location"] });
+      session.current = null;   // the session ends with a chosen place
+      if (place.location) goTo({ lat: place.location.lat(), lng: place.location.lng() }, 18);
+    } catch { setNote("We could not open that place. Try another one, or move the map."); }
+  };
+
+  // Search an area, street or landmark, kept to Latur (Enter, or when suggestions are not available).
   const search = async () => {
     const q = query.trim();
     if (!q || !window.google?.maps) return;
@@ -134,12 +173,30 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
       {state !== "off" && (
         <>
           <div className="flex gap-2">
-            <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Search an area or landmark in Latur</span>
-              <Search className="pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2 text-(--soft)" aria-hidden />
-              <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void search(); } }}
-                placeholder="Search an area or landmark" enterKeyHint="search" className="ol-field !pl-11" disabled={state !== "ready"} />
-            </label>
+            <div className="relative min-w-0 flex-1">
+              <label>
+                <span className="sr-only">Search your shop, street or a landmark in Latur</span>
+                <Search className="pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2 text-(--soft)" aria-hidden />
+                <input value={query} onChange={e => setQuery(e.target.value)} onFocus={() => hits.length && setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (hits[0]) void pick(hits[0]); else void search(); } if (e.key === "Escape") setOpen(false); }}
+                  placeholder="Search your shop, street or a landmark" enterKeyHint="search" className="ol-field !pl-11" disabled={state !== "ready"}
+                  role="combobox" aria-expanded={open && hits.length > 0} aria-controls="map-search-hits" aria-autocomplete="list" autoComplete="off" />
+              </label>
+              {open && hits.length > 0 && (
+                <ul id="map-search-hits" role="listbox" className="absolute inset-x-0 top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-(--line) bg-white shadow-[0_18px_36px_-18px_oklch(0.19_0.045_156/0.5)]">
+                  {hits.map((h, i) => (
+                    <li key={i} role="option" aria-selected={false}>
+                      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => void pick(h)}
+                        className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-(--chip)">
+                        <PinIcon className="mt-0.5 size-4 shrink-0 text-(--soft)" aria-hidden />
+                        <span className="min-w-0"><span className="block truncate text-[0.95rem] font-semibold">{h.main}</span>
+                          {h.sub && <span className="block truncate text-sm text-(--soft)">{h.sub}</span>}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <button type="button" onClick={() => void search()} disabled={state !== "ready" || !query.trim()} className="ol-pill is-quiet !min-h-[3.25rem] !px-5">Find</button>
           </div>
           <div className="relative mt-3 overflow-hidden rounded-2xl border border-(--line) bg-[#e8efe4] shadow-[0_18px_36px_-24px_oklch(0.19_0.045_156/0.5)]">
@@ -165,10 +222,6 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
               </span>
               <span aria-hidden className={`pointer-events-none absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-(--forest)/40 transition-transform duration-200 ${dragging ? "scale-150" : ""}`} />
               {!value && <p className="pointer-events-none absolute inset-x-3 top-3 mx-auto w-fit rounded-full bg-(--forest) px-4 py-1.5 text-center text-sm font-semibold text-(--on-forest)">Drag the map to put the pin on your shop</p>}
-              <button type="button" onClick={here} disabled={busy} aria-label="Use my current location"
-                className="absolute right-3 bottom-3 flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-(--ink) shadow-[0_8px_18px_-8px_oklch(0.19_0.045_156/0.5)] disabled:opacity-60">
-                <LocateFixed className="size-4.5" aria-hidden />{busy ? "Finding you…" : "My location"}
-              </button>
             </>}
           </div>
         </>
