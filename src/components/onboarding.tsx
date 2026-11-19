@@ -12,6 +12,7 @@
 // The draft is saved to One Local once the contact step is done, and the form also survives a reload on this
 // browser. Back is always on screen, every step is a browser history entry so the phone's back gesture moves between
 // steps, and Ol, the mascot, reacts to everything and hops under whichever text box you are typing in.
+import { MapPin } from "./map-pin";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
@@ -28,11 +29,11 @@ type PartnerType = "store" | "restaurant" | "service";
 type Form = {
   partner_type: PartnerType; business_name: string; owner_name: string; phone: string; email: string; consent: boolean;
   category_family: string; category: string; categories: string[]; subcategories: string[];
-  address: string; pin_code: string; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
+  address: string; pin_code: string; location_lat: number | null; location_lng: number | null; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
   // Asked for the team's first call; sent in `notes`, not as fields of their own.
   billing: string; call_time: string;
 };
-const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address: "", pin_code: "", outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "" };
+const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "" };
 type Screen = "name" | "type" | "you" | "family" | "category" | "rtypes" | "where" | "delivery" | "papers" | "call" | "password" | "review";
 // Drafts saved on this browser by the older, longer screens point at steps that are now split up.
 const OLD_SCREENS: Record<string, Screen> = { start: "name", subcats: "category", business: "where", finish: "password", account: "password" };
@@ -164,7 +165,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (s === "family") return f.category_family ? null : "Choose one.";
     if (s === "category") return !f.categories.length ? "Choose at least one category." : f.subcategories.length > 30 ? "Tick up to 30 items." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
     if (s === "rtypes") return f.subcategories.length ? null : "Pick at least one type of food.";
-    if (s === "where") return f.address.trim().length < 5 ? "Type your shop address." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : null;
+    if (s === "where") return f.location_lat == null ? "Pin your shop on the map, so riders can find you." : f.address.trim().length < 5 ? "Type your shop address." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : null;
     if (s === "delivery") return f.services.length ? null : "Choose at least one.";
     if (s === "papers") return f.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(f.gstin.toUpperCase()) ? "GSTIN looks wrong (15 characters)." : f.fssai && !/^\d{14}$/.test(f.fssai) ? "FSSAI licence is 14 digits." : null;
     if (s === "password") return !passwordOk(pw.password) ? "Password needs 8+ characters with a letter and a number." : pw.password !== pw.confirm ? "The two passwords don’t match." : null;
@@ -450,8 +451,14 @@ function RestaurantTypes({ values, onToggle }: { values: string[]; onToggle: (v:
 }
 
 function Where({ f, set }: { f: Form; set: Setter }) {
+  const pin = f.location_lat != null && f.location_lng != null ? { lat: f.location_lat, lng: f.location_lng } : null;
   return <>
     <Q help="So customers nearby can find you, and riders can reach you.">Where is your <em>shop</em>?</Q>
+    <MapPin value={pin} onPin={(p, found) => {
+      set("location_lat", p.lat); set("location_lng", p.lng);
+      if (found?.pin_code) set("pin_code", found.pin_code);
+      if (found?.line && f.address.trim().length < 5) set("address", found.line);
+    }} />
     <div className="mt-7 grid gap-4 sm:grid-cols-[1fr_170px]">
       <Field label="Shop address"><Input value={f.address} tip="address" onValue={v => set("address", v)} placeholder="Shop no., street, area" autoComplete="street-address" /></Field>
       <Field label="PIN code"><Input value={f.pin_code} tip="pin_code" onValue={v => set("pin_code", v.replace(/\D/g, "").slice(0, 6))} placeholder="413512" inputMode="numeric" autoComplete="postal-code" /></Field>
@@ -532,7 +539,7 @@ function Review({ f, goto }: { f: Form; goto: (s: Screen) => void }) {
     f.partner_type === "store" ? { title: "What you sell", screen: "category", rows: [["Shop type", f.category_family], ["Categories", f.categories.join(", ")], ["Sells", f.subcategories.join(", ")]] }
     : f.partner_type === "service" ? { title: "Your services", screen: "category", rows: [["Categories", f.categories.join(", ")], ["Services", f.subcategories.join(", ")]] }
     : { title: "Food you serve", screen: "rtypes", rows: [["Food", f.subcategories.join(", ")]] };
-  const where: [string, string][] = [["Address", `${f.address}, ${f.pin_code}`], ["Outlets", f.outlets || "1"], ...(f.gstin ? [["GSTIN", f.gstin] as [string, string]] : []), ...(f.fssai ? [["FSSAI", f.fssai] as [string, string]] : [])];
+  const where: [string, string][] = [["Address", `${f.address}, ${f.pin_code}`], ["Map pin", f.location_lat != null ? "Pinned" : "Not pinned"], ["Outlets", f.outlets || "1"], ...(f.gstin ? [["GSTIN", f.gstin] as [string, string]] : []), ...(f.fssai ? [["FSSAI", f.fssai] as [string, string]] : [])];
   return <>
     <Q help="Tap Edit to change anything.">All <em>good</em>?</Q>
     <div className="mt-7 grid gap-4">
