@@ -285,44 +285,72 @@
  "restaurant": {
   "types": [
    {
-    "name": "Indian",
-    "icon": "rest-indian"
-   },
-   {
-    "name": "Biryani",
-    "icon": "rest-biryani"
-   },
-   {
-    "name": "Burger",
-    "icon": "rest-burger"
-   },
-   {
-    "name": "Pizza",
-    "icon": "rest-pizza"
+    "name": "North Indian",
+    "icon": "Flame"
    },
    {
     "name": "South Indian",
-    "icon": "rest-south-indian"
+    "icon": "Leaf"
    },
    {
-    "name": "Desserts & ice cream",
-    "icon": "rest-desserts-ice-cream"
+    "name": "Maharashtrian",
+    "icon": "ChefHat"
+   },
+   {
+    "name": "Thali",
+    "icon": "Utensils"
+   },
+   {
+    "name": "Chinese",
+    "icon": "Soup"
+   },
+   {
+    "name": "Mughlai",
+    "icon": "Drumstick"
+   },
+   {
+    "name": "Biryani",
+    "icon": "CookingPot"
+   },
+   {
+    "name": "Street food",
+    "icon": "Popcorn"
+   },
+   {
+    "name": "Fast food",
+    "icon": "Sandwich"
+   },
+   {
+    "name": "Pizza",
+    "icon": "Pizza"
+   },
+   {
+    "name": "Burger",
+    "icon": "Hamburger"
+   },
+   {
+    "name": "Seafood",
+    "icon": "Fish"
+   },
+   {
+    "name": "Juices & beverages",
+    "icon": "Citrus"
    },
    {
     "name": "Café",
-    "icon": "rest-cafe"
+    "icon": "Coffee"
    },
    {
     "name": "Bakery",
-    "icon": "rest-bakery"
+    "icon": "Croissant"
    },
    {
     "name": "Sweets",
-    "icon": "rest-sweets"
+    "icon": "Candy"
    },
    {
-    "name": "Late night",
-    "icon": "rest-late-night"
+    "name": "Desserts & ice cream",
+    "icon": "IceCreamCone"
    }
   ]
  },

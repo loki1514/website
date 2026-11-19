@@ -1,15 +1,19 @@
 "use client";
 // The shop's map pin on the join form (0728: the database needs it on submit). Google Maps JavaScript API with a BROWSER key
 // (NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY, restricted in Google Cloud to this site's addresses; APIs: Maps JavaScript + Geocoding).
-// Drag the pin or tap the map; "Use my current location" asks the phone. A moved pin fills the PIN code (and the address while it is
-// empty) from Google's address for that spot. Without a key the map is left out and the current-location button still works.
+//
+// The pin stands still in the middle of the map and the partner drags the map under it until the pin's tip is on the shop's door
+// (easier on a phone than grabbing a small marker). Nothing counts as pinned until the map has been moved, searched or located:
+// the opening view of Latur is never sent as the shop. Each new spot looks up Google's address for it, which fills the street and
+// area and the PIN code while those boxes are empty. Without a key the map is left out and "Use my current location" still works.
 import { useEffect, useRef, useState } from "react";
+import { LocateFixed, MapPin as PinIcon, Search } from "lucide-react";
 
 const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY?.trim() || "";
 const LATUR = { lat: 18.4088, lng: 76.5604 };
 
 type Pin = { lat: number; lng: number };
-type Found = { line: string; pin_code: string };
+export type Found = { line: string; locality: string; pin_code: string };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global { interface Window { google?: any; __olMaps?: Promise<void> } }
@@ -28,85 +32,158 @@ function loadMaps(): Promise<void> {
 }
 
 const round = (n: number) => Math.round(n * 1e6) / 1e6;
+const part = (r: any, type: string) => r?.address_components?.find((c: any) => c.types?.includes(type))?.long_name ?? "";
+
+// Google's address for a spot: the street part (for the review), the area, and the PIN code.
+function readAddress(best: any): Found {
+  const pin = part(best, "postal_code");
+  const locality = [part(best, "sublocality_level_2"), part(best, "sublocality_level_1") || part(best, "neighborhood")].filter(Boolean).join(", ")
+    || part(best, "route");
+  const line = String(best?.formatted_address ?? "").replace(/,?\s*(India|Maharashtra)\b.*$/i, "").replace(/\s*\d{6}\s*$/, "").trim();
+  return { line, locality, pin_code: /^\d{6}$/.test(pin) ? pin : "" };
+}
 
 export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, found: Found | null) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
-  const marker = useRef<any>(null);
+  const moved = useRef(false);
+  const onPinRef = useRef(onPin);
+  useEffect(() => { onPinRef.current = onPin; });
   const [state, setState] = useState<"off" | "loading" | "ready" | "failed">(KEY ? "loading" : "off");
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [spot, setSpot] = useState<string | null>(null);
 
-  // the address Google has for a spot: the street part and the PIN code
   const lookUp = async (p: Pin): Promise<Found | null> => {
     if (!window.google?.maps) return null;
     try {
       const { results } = await new window.google.maps.Geocoder().geocode({ location: p });
-      const best = results?.[0];
-      if (!best) return null;
-      const pin = best.address_components?.find((c: any) => c.types?.includes("postal_code"))?.long_name ?? "";
-      const line = String(best.formatted_address ?? "").replace(/,?\s*(India|Maharashtra)\b.*$/i, "").replace(/\s*\d{6}\s*$/, "").trim();
-      return { line, pin_code: /^\d{6}$/.test(pin) ? pin : "" };
+      return results?.[0] ? readAddress(results[0]) : null;
     } catch { return null; }
   };
 
-  const place = async (p: Pin) => {
-    const pin = { lat: round(p.lat), lng: round(p.lng) };
-    marker.current?.setPosition(pin);
-    map.current?.panTo(pin);
-    onPin(pin, await lookUp(pin));
+  // The pin is the middle of the map: called whenever the map comes to rest after the partner moved it.
+  const settle = async () => {
+    if (!map.current || !moved.current) return;
+    const c = map.current.getCenter();
+    const pin = { lat: round(c.lat()), lng: round(c.lng()) };
+    const found = await lookUp(pin);
+    setSpot(found?.line || null);
+    onPinRef.current(pin, found);
   };
 
   useEffect(() => {
     if (!KEY) return;
     let gone = false;
+    // Google calls this when the key is refused (for example on an address the key is not allowed on): show our fallback, not Google's error box
+    (window as any).gm_authFailure = () => { if (!gone) setState("failed"); };
     loadMaps().then(() => {
       if (gone || !box.current) return;
       const g = window.google.maps;
-      const start = value ?? LATUR;
-      map.current = new g.Map(box.current, { center: start, zoom: value ? 17 : 13, streetViewControl: false, mapTypeControl: false, fullscreenControl: false, clickableIcons: false, gestureHandling: "greedy" });
-      marker.current = new g.Marker({ position: start, map: map.current, draggable: true, title: "Your shop" });
-      marker.current.addListener("dragend", () => { const q = marker.current.getPosition(); place({ lat: q.lat(), lng: q.lng() }); });
-      map.current.addListener("click", (e: any) => place({ lat: e.latLng.lat(), lng: e.latLng.lng() }));
+      map.current = new g.Map(box.current, {
+        center: value ?? LATUR, zoom: value ? 18 : 14, streetViewControl: false, mapTypeControl: false, fullscreenControl: false,
+        clickableIcons: false, gestureHandling: "greedy", zoomControl: true, keyboardShortcuts: true,
+      });
+      if (value) moved.current = true;
+      map.current.addListener("dragstart", () => { moved.current = true; setDragging(true); setNote(null); });
+      map.current.addListener("dragend", () => setDragging(false));
+      map.current.addListener("idle", () => { void settle(); });
       setState("ready");
     }).catch(() => !gone && setState("failed"));
     return () => { gone = true; };
-    // the map is made once; later pins move it through place()
+    // the map is made once; later moves come from the map itself
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const goTo = (p: Pin, zoom = 18) => {
+    moved.current = true;
+    if (map.current) { map.current.setZoom(zoom); map.current.panTo(p); }   // "idle" then settles the pin
+    else onPinRef.current({ lat: round(p.lat), lng: round(p.lng) }, null);  // no map: the location is the pin
+  };
+
   const here = () => {
-    if (!("geolocation" in navigator)) { setNote("This browser cannot share your location. Drag the pin instead."); return; }
+    if (!("geolocation" in navigator)) { setNote("This browser cannot share your location. Move the map instead."); return; }
     setBusy(true); setNote(null);
     navigator.geolocation.getCurrentPosition(
-      p => { setBusy(false); map.current?.setZoom(18); place({ lat: p.coords.latitude, lng: p.coords.longitude }); },
-      () => { setBusy(false); setNote("We could not get your location. Allow location for this site, or drag the pin on the map."); },
+      p => { setBusy(false); goTo({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => { setBusy(false); setNote("We could not get your location. Allow location for this site, or move the map to your shop."); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
   };
 
+  // Search an area, street or landmark, kept to Latur.
+  const search = async () => {
+    const q = query.trim();
+    if (!q || !window.google?.maps) return;
+    setNote(null);
+    try {
+      const { results } = await new window.google.maps.Geocoder().geocode({
+        address: `${q}, Latur, Maharashtra`, componentRestrictions: { country: "IN" },
+        bounds: { south: 17.9, west: 75.9, north: 18.9, east: 77.2 },
+      });
+      const loc = results?.[0]?.geometry?.location;
+      if (!loc) { setNote("We could not find that place. Try an area or a landmark near your shop."); return; }
+      goTo({ lat: loc.lat(), lng: loc.lng() }, 17);
+    } catch { setNote("We could not find that place. Try an area or a landmark near your shop."); }
+  };
+
   return (
-    <div className="mt-5">
-      <p className="ol-label mb-2 text-base">Pin your shop on the map</p>
+    <div className="mt-7">
       {state !== "off" && (
-        <div ref={box} role="application" aria-label="Map: drag the pin to your shop" className="h-64 w-full overflow-hidden rounded-2xl border border-black/10 bg-[#e8efe4] sm:h-72">
-          {state === "loading" && <p className="p-4 text-sm opacity-70">Loading the map…</p>}
-          {state === "failed" && <p className="p-4 text-sm">The map could not load. Use your current location below.</p>}
-        </div>
+        <>
+          <div className="flex gap-2">
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Search an area or landmark in Latur</span>
+              <Search className="pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2 text-(--soft)" aria-hidden />
+              <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void search(); } }}
+                placeholder="Search an area or landmark" enterKeyHint="search" className="ol-field !pl-11" disabled={state !== "ready"} />
+            </label>
+            <button type="button" onClick={() => void search()} disabled={state !== "ready" || !query.trim()} className="ol-pill is-quiet !min-h-[3.25rem] !px-5">Find</button>
+          </div>
+          <div className="relative mt-3 overflow-hidden rounded-2xl border border-(--line) bg-[#e8efe4] shadow-[0_18px_36px_-24px_oklch(0.19_0.045_156/0.5)]">
+            <div ref={box} role="application" aria-label="Map: move it until the pin is on your shop" className="h-[19rem] w-full sm:h-[22rem]" />
+            {state === "loading" && <p className="absolute inset-0 grid place-items-center text-sm text-(--soft)">Loading the map…</p>}
+            {state === "failed" && (
+              <div className="absolute inset-0 grid place-items-center bg-[#e8efe4] p-6 text-center">
+                <div>
+                  <p className="text-[0.95rem] font-semibold">The map could not load.</p>
+                  <p className="mt-1 text-sm text-(--soft)">Stand at your shop and use your current location instead.</p>
+                  <button type="button" onClick={here} disabled={busy} className="ol-pill is-quiet mt-4 !min-h-11 !px-5 bg-white">
+                    <LocateFixed className="size-4.5" aria-hidden />{busy ? "Finding you…" : "Use my current location"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {state === "ready" && <>
+              {/* The fixed pin: its tip marks the middle of the map. */}
+              <span aria-hidden className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full">
+                <span className={`block transition-transform duration-200 ease-out ${dragging ? "-translate-y-2.5" : ""}`}>
+                  <PinIcon className="size-11 fill-(--forest) text-(--lime) drop-shadow-[0_6px_6px_oklch(0.19_0.045_156/0.45)]" strokeWidth={1.6} />
+                </span>
+              </span>
+              <span aria-hidden className={`pointer-events-none absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-(--forest)/40 transition-transform duration-200 ${dragging ? "scale-150" : ""}`} />
+              {!value && <p className="pointer-events-none absolute inset-x-3 top-3 mx-auto w-fit rounded-full bg-(--forest) px-4 py-1.5 text-center text-sm font-semibold text-(--on-forest)">Drag the map to put the pin on your shop</p>}
+              <button type="button" onClick={here} disabled={busy} aria-label="Use my current location"
+                className="absolute right-3 bottom-3 flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-(--ink) shadow-[0_8px_18px_-8px_oklch(0.19_0.045_156/0.5)] disabled:opacity-60">
+                <LocateFixed className="size-4.5" aria-hidden />{busy ? "Finding you…" : "My location"}
+              </button>
+            </>}
+          </div>
+        </>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
+      {state === "off" && (
         <button type="button" onClick={here} disabled={busy} className="ol-chip !px-5 !py-2.5 !text-base">
-          {busy ? "Finding you…" : "Use my current location"}
+          <LocateFixed className="size-4.5" aria-hidden />{busy ? "Finding you…" : "Use my current location"}
         </button>
-        {value ? (
-          <span className="text-sm">
-            Pinned · <a className="underline" href={`https://www.google.com/maps?q=${value.lat},${value.lng}`} target="_blank" rel="noreferrer">check it on Google Maps</a>
-          </span>
-        ) : (
-          <span className="text-sm opacity-75">{state === "off" ? "Stand at your shop and tap the button." : "Drag the pin or tap the map on your shop."}</span>
-        )}
-      </div>
-      {note && <p className="mt-2 text-sm text-[#9a2b1d]" role="alert">{note}</p>}
+      )}
+      <p className="mt-3 text-sm" aria-live="polite">
+        {value
+          ? <><b>Pinned</b>{spot ? <> near {spot}</> : null} · <a className="underline underline-offset-4" href={`https://www.google.com/maps?q=${value.lat},${value.lng}`} target="_blank" rel="noreferrer">check on Google Maps</a></>
+          : <span className="text-(--soft)">{state === "off" ? "Stand at your shop and tap the button." : "Riders use this pin to reach your shop, so put it on the door."}</span>}
+      </p>
+      {note && <p className="mt-2 text-sm text-(--danger)" role="alert">{note}</p>}
     </div>
   );
 }

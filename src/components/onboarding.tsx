@@ -16,7 +16,7 @@ import { MapPin } from "./map-pin";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, Check, ChevronLeft, Copy, Pencil, Store, UtensilsCrossed, Wrench } from "lucide-react";
+import { ArrowRight, Candy, Check, ChefHat, ChevronLeft, Citrus, Coffee, CookingPot, Copy, Croissant, Drumstick, Fish, Flame, Hamburger, IceCreamCone, LayoutDashboard, Leaf, Pencil, Phone, Pizza, Popcorn, Sandwich, Soup, Store, Utensils, UtensilsCrossed, Wrench, type LucideIcon } from "lucide-react";
 import taxonomy from "@/lib/partner-taxonomy.json";
 import { API } from "@/lib/partners";
 import { MascotFollower, useMascot } from "@/components/mascot";
@@ -29,30 +29,30 @@ type PartnerType = "store" | "restaurant" | "service";
 type Form = {
   partner_type: PartnerType; business_name: string; owner_name: string; phone: string; email: string; consent: boolean;
   category_family: string; category: string; categories: string[]; subcategories: string[];
-  address: string; pin_code: string; location_lat: number | null; location_lng: number | null; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
+  // The address in parts (0731: Master and the Partner app read the parts); `address` is them joined, for the review queue.
+  address_line: string; locality: string; landmark: string; address: string; pin_code: string; location_lat: number | null; location_lng: number | null; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
   // Asked for the team's first call; sent in `notes`, not as fields of their own.
   billing: string; call_time: string;
 };
-const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "" };
+const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address_line: "", locality: "", landmark: "", address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "" };
 type Screen = "name" | "type" | "you" | "family" | "category" | "rtypes" | "where" | "delivery" | "papers" | "call" | "password" | "review";
 // Drafts saved on this browser by the older, longer screens point at steps that are now split up.
 const OLD_SCREENS: Record<string, Screen> = { start: "name", subcats: "category", business: "where", finish: "password", account: "password" };
 const STORAGE = "onelocal.partner-onboarding.v1";
 const TYPE_ICONS = { store: Store, restaurant: UtensilsCrossed, service: Wrench } as const;
+// Each cuisine has its own drawn icon (the taxonomy names it). The names are the Partner app's cuisines (its server's taxonomy).
+const CUISINE_ICONS: Record<string, LucideIcon> = { Flame, Leaf, ChefHat, Utensils, Soup, Drumstick, CookingPot, Popcorn, Sandwich, Pizza, Hamburger, Fish, Citrus, Coffee, Croissant, Candy, IceCreamCone };
 // The storefront shown for each kind of business until a category is picked. There is no restaurant storefront yet,
 // so the bakery stands in (bakery is a Restaurant category in the Bible).
 const TYPE_ART: Record<PartnerType, string> = { store: "grocery-and-daily-needs-grocery", restaurant: "grocery-and-daily-needs-bakery-and-sweets", service: "service-health" };
 const BILLING = ["Notebook or bill book", "Billing machine", "Another app", "Nothing yet"];
 const CALL_TIMES = ["Morning", "Afternoon", "Evening", "Any time"];
-// The three stages of getting started, as the home page names them. Shown once the application is in.
-const STAGES = [
-  ["Register your business", "Done. Our Latur team will call you to verify your details."],
-  ["Get ready to go live", "Add your PAN, documents and bank details, set up your catalogue, review your charges, and complete training and readiness checks."],
-  ["Start serving customers", "Go live after approval, receive orders or bookings, and track your activity."],
-];
 const EASE = [0.16, 1, 0.3, 1] as const;
 const icon = (slug: string) => `/onboarding/icons/${slug}.webp`;
 const storeImg = (slug: string) => `/onboarding/stores/${slug}.webp`;
+
+// The address the review queue reads in one line: shop and building, street and area, landmark, city.
+const fullAddress = (f: Form) => [f.address_line, f.locality, f.landmark && `Near ${f.landmark}`, "Latur"].map(x => x.trim()).filter(Boolean).join(", ");
 
 const phoneOk = (v: string) => /^[6-9]\d{9}$/.test(v.replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, ""));
 const emailOk = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
@@ -103,6 +103,8 @@ export function Onboarding({ fonts }: { fonts: string }) {
         // Drafts saved before categories became multiple-choice carry only `category`.
         if (!Array.isArray(form.categories)) form.categories = [];
         if (!form.categories.length && form.category) form.categories = [form.category];
+        // Drafts from before the address had parts carry one line: it becomes the first part.
+        if (!form.address_line && form.address) form.address_line = form.address;
         const want = OLD_SCREENS[s.screen] ?? s.screen;
         first = screensFor(form.partner_type).includes(want) ? want : "name";
         setF(form); setScreen(first); key.current = s.key;
@@ -165,7 +167,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (s === "family") return f.category_family ? null : "Choose one.";
     if (s === "category") return !f.categories.length ? "Choose at least one category." : f.subcategories.length > 30 ? "Tick up to 30 items." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
     if (s === "rtypes") return f.subcategories.length ? null : "Pick at least one type of food.";
-    if (s === "where") return f.location_lat == null ? "Pin your shop on the map, so riders can find you." : f.address.trim().length < 5 ? "Type your shop address." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : null;
+    if (s === "where") return f.location_lat == null ? "Move the map until the pin is on your shop." : f.address_line.trim().length < 2 ? "Type your shop number and building." : f.locality.trim().length < 2 ? "Type the street and area." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : null;
     if (s === "delivery") return f.services.length ? null : "Choose at least one.";
     if (s === "papers") return f.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(f.gstin.toUpperCase()) ? "GSTIN looks wrong (15 characters)." : f.fssai && !/^\d{14}$/.test(f.fssai) ? "FSSAI licence is 14 digits." : null;
     if (s === "password") return !passwordOk(pw.password) ? "Password needs 8+ characters with a letter and a number." : pw.password !== pw.confirm ? "The two passwords don’t match." : null;
@@ -175,7 +177,8 @@ export function Onboarding({ fonts }: { fonts: string }) {
   const post = async (stage: "draft" | "submit") => {
     const { billing, call_time, ...fields } = f;
     const notes = [billing && `Bills today with: ${billing}`, call_time && `Best time to call: ${call_time}`].filter(Boolean).join(". ");
-    const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
+    const address = fullAddress(f);
+    const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, address, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
     const body = r ? await r.json().catch(() => ({})) : {};
     if (!r || !r.ok) throw new Error(body?.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
     return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean };
@@ -281,6 +284,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
                 <button type="submit" disabled={busy} onMouseEnter={() => react("playful", 900)} className="ol-pill mt-7 min-w-44">
                   {busy ? "Saving…" : screen === "review" ? "Send application" : "Next"}<ArrowRight className="size-5" aria-hidden />
                 </button>
+                {screen === "name" && <SignInOffer />}
               </form>
             )}
           </div>
@@ -396,12 +400,13 @@ function Family({ value, onPick }: { value: string; onPick: (v: string) => void 
 }
 
 // One tile in a grid of choices (category, food type).
-function Tile({ name, slug, on, onClick }: { name: string; slug: string; on: boolean; onClick: () => void }) {
+function Tile({ name, slug, Icon, on, onClick }: { name: string; slug?: string; Icon?: LucideIcon; on: boolean; onClick: () => void }) {
   const { react } = useMascot();
   return (
     <button type="button" role="checkbox" aria-checked={on} onClick={onClick} onMouseEnter={() => react("curious", 700)} className="ol-choice min-h-[64px] !gap-2.5 !p-2">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={icon(slug)} alt="" className="size-10 shrink-0 rounded-xl object-cover" />
+      {Icon ? <span className="ol-ico !size-10 !rounded-xl"><Icon className="size-5" strokeWidth={1.9} aria-hidden /></span>
+        // eslint-disable-next-line @next/next/no-img-element
+        : <img src={icon(slug ?? "")} alt="" className="size-10 shrink-0 rounded-xl object-cover" />}
       <span className="min-w-0 flex-1 text-[0.92rem] leading-tight font-bold">{name}</span>
       {on && <Check className="mr-1 size-5 shrink-0" strokeWidth={3.5} />}
     </button>
@@ -443,9 +448,9 @@ function WhatYouSell({ f, onCategory, onToggle }: { f: Form; onCategory: (v: str
 
 function RestaurantTypes({ values, onToggle }: { values: string[]; onToggle: (v: string) => void }) {
   return <>
-    <Q help="Tick everything on your menu.">What do you <em>serve</em>?</Q>
+    <Q help="Tick every cuisine on your menu. The first one you tick is your main one.">What do you <em>serve</em>?</Q>
     <div role="group" aria-label="Food types" className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {taxonomy.restaurant.types.map(r => <Tile key={r.name} name={r.name} slug={r.icon} on={values.includes(r.name)} onClick={() => onToggle(r.name)} />)}
+      {taxonomy.restaurant.types.map(r => <Tile key={r.name} name={r.name} Icon={CUISINE_ICONS[r.icon] ?? Utensils} on={values.includes(r.name)} onClick={() => onToggle(r.name)} />)}
     </div>
   </>;
 }
@@ -453,15 +458,22 @@ function RestaurantTypes({ values, onToggle }: { values: string[]; onToggle: (v:
 function Where({ f, set }: { f: Form; set: Setter }) {
   const pin = f.location_lat != null && f.location_lng != null ? { lat: f.location_lat, lng: f.location_lng } : null;
   return <>
-    <Q help="So customers nearby can find you, and riders can reach you.">Where is your <em>shop</em>?</Q>
+    <Q help="Riders use the pin to reach you, and customers nearby find you by it.">Where is your <em>shop</em>?</Q>
     <MapPin value={pin} onPin={(p, found) => {
       set("location_lat", p.lat); set("location_lng", p.lng);
-      if (found?.pin_code) set("pin_code", found.pin_code);
-      if (found?.line && f.address.trim().length < 5) set("address", found.line);
+      // Google's address fills the boxes the partner has not typed in yet; what they typed is never overwritten
+      if (found?.pin_code && !f.pin_code) set("pin_code", found.pin_code);
+      if (found?.locality && !f.locality.trim()) set("locality", found.locality);
     }} />
-    <div className="mt-7 grid gap-4 sm:grid-cols-[1fr_170px]">
-      <Field label="Shop address"><Input value={f.address} tip="address" onValue={v => set("address", v)} placeholder="Shop no., street, area" autoComplete="street-address" /></Field>
-      <Field label="PIN code"><Input value={f.pin_code} tip="pin_code" onValue={v => set("pin_code", v.replace(/\D/g, "").slice(0, 6))} placeholder="413512" inputMode="numeric" autoComplete="postal-code" /></Field>
+    <p className="ol-label mt-8 mb-3 text-base">Address details</p>
+    <div className="grid gap-4">
+      <Field label="Shop no., building and floor"><Input value={f.address_line} tip="address_line" onValue={v => set("address_line", v)} placeholder="e.g. Shop 4, Sai Complex, ground floor" autoComplete="address-line1" maxLength={200} /></Field>
+      <Field label="Street and area"><Input value={f.locality} tip="locality" onValue={v => set("locality", v)} placeholder="e.g. Ausa Road, Shivaji Nagar" autoComplete="address-line2" maxLength={100} /></Field>
+      <div className="grid gap-4 sm:grid-cols-[1fr_170px]">
+        <Field label="Landmark" optional><Input value={f.landmark} tip="landmark" onValue={v => set("landmark", v)} placeholder="e.g. opposite the bus stand" maxLength={100} /></Field>
+        <Field label="PIN code"><Input value={f.pin_code} tip="pin_code" onValue={v => set("pin_code", v.replace(/\D/g, "").slice(0, 6))} placeholder="413512" inputMode="numeric" autoComplete="postal-code" /></Field>
+      </div>
+      <p className="text-sm text-(--soft)">City: <b className="text-(--fg)">Latur, Maharashtra</b>. One Local is open in Latur for now.</p>
     </div>
   </>;
 }
@@ -539,7 +551,7 @@ function Review({ f, goto }: { f: Form; goto: (s: Screen) => void }) {
     f.partner_type === "store" ? { title: "What you sell", screen: "category", rows: [["Shop type", f.category_family], ["Categories", f.categories.join(", ")], ["Sells", f.subcategories.join(", ")]] }
     : f.partner_type === "service" ? { title: "Your services", screen: "category", rows: [["Categories", f.categories.join(", ")], ["Services", f.subcategories.join(", ")]] }
     : { title: "Food you serve", screen: "rtypes", rows: [["Food", f.subcategories.join(", ")]] };
-  const where: [string, string][] = [["Address", `${f.address}, ${f.pin_code}`], ["Map pin", f.location_lat != null ? "Pinned" : "Not pinned"], ["Outlets", f.outlets || "1"], ...(f.gstin ? [["GSTIN", f.gstin] as [string, string]] : []), ...(f.fssai ? [["FSSAI", f.fssai] as [string, string]] : [])];
+  const where: [string, string][] = [["Address", `${fullAddress(f)} ${f.pin_code}`], ["Map pin", f.location_lat != null ? "Pinned" : "Not pinned"], ["Outlets", f.outlets || "1"], ...(f.gstin ? [["GSTIN", f.gstin] as [string, string]] : []), ...(f.fssai ? [["FSSAI", f.fssai] as [string, string]] : [])];
   return <>
     <Q help="Tap Edit to change anything.">All <em>good</em>?</Q>
     <div className="mt-7 grid gap-4">
@@ -578,31 +590,67 @@ function CopyButton({ text }: { text: string }) {
   return <button type="button" onClick={copy} aria-pressed={copied} aria-label={copied ? "Reference copied" : "Copy reference"} className="ol-chip mt-3">{copied ? <Check className="size-4" strokeWidth={3.5} /> : <Copy className="size-4" />}{copied ? "Copied" : "Copy"}</button>;
 }
 
-function Done({ reference, existing, business, email, login, appCode }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
+// On the first step: partners who already applied (or are approved) go straight to their dashboard and sign in there.
+function SignInOffer() {
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="max-w-xl">
-      <h1 className="ol-title text-[clamp(2.1rem,4.6vw,3.4rem)]">{existing ? <>We already have <em>your application</em></> : <>Application <em>sent!</em></>}</h1>
-      <p className="ol-lead mt-4 text-lg sm:text-xl">Thank you, {business}. Our Latur team will call you to verify your details and set up your shop.</p>
-      {reference
-        ? <div className="ol-card mt-7 w-fit px-6 py-4"><p className="text-sm font-semibold text-(--soft)">{appCode ? "Your app code" : "Your reference"}</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
-        : <p className="ol-card mt-7 px-4 py-3 text-[0.95rem]">We already have an application for this mobile number. For your safety we do not show its code here. Our Latur team will call you, or sign in to the app with your email and password.</p>}
-      {login && <p className="ol-lead mt-6 text-base">{appCode
-        ? <>Your shop is ready in the One Local Partner app. Type the code above on its sign-in screen, or sign in with <b>{email}</b> and your password. Orders start once our team approves your shop.</>
-        : login === "exists"
-        ? <>This email already has a One Local login. Use that password in the One Local Partner app.</>
-        : login === "confirm_email" ? <>Check <b>{email}</b> and confirm your email, then sign in to the One Local Partner app.</>
-        : login === "failed" ? <>Your application is in, but we could not set up your login just now. We will help you with it when we call.</>
-        : <>Your login is ready: sign in to the One Local Partner app with <b>{email}</b>. Your shop appears there once it is approved.</>}</p>}
-      <ol className="mt-7 space-y-4 border-t border-(--line) pt-6">
-        {STAGES.map(([head, body], i) => (
-          <li key={head} className="grid grid-cols-[2rem_1fr] gap-x-3.5">
-            <span className={cn("ol-display grid size-8 place-items-center rounded-lg text-sm tabular-nums", i === 0 ? "bg-(--forest) text-(--lime)" : "bg-(--chip) text-(--soft)")}>{i === 0 ? <Check className="size-4" strokeWidth={3} aria-label="Done" /> : i + 1}</span>
-            <div><p className="ol-label">{head}</p><p className="ol-lead text-[0.95rem]">{body}</p></div>
+    <div className="mt-12 flex max-w-lg flex-wrap items-center gap-x-4 gap-y-3 border-t border-(--line) pt-6">
+      <span className="ol-ico grid size-11 shrink-0 place-items-center rounded-[0.8rem]"><LayoutDashboard className="size-5" aria-hidden /></span>
+      <div className="min-w-0 flex-1">
+        <p className="ol-label text-base">Already a OneLocal partner?</p>
+        <p className="ol-lead text-[0.95rem]">Sign in with the email and password from your application.</p>
+      </div>
+      <Link href="/dashboard" className="ol-pill is-quiet !min-h-11 !px-5">Sign in<ArrowRight className="size-4" aria-hidden /></Link>
+    </div>
+  );
+}
+
+// After sending: the application's code, how to sign in, and what happens next, in that order.
+function Done({ reference, existing, business, email, login, appCode }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
+  const loginLine = appCode || login === "created" ? <>Sign in with <b className="break-all">{email}</b> and the password you just set.</>
+    : login === "exists" ? <>This email already has a OneLocal login. Sign in with <b className="break-all">{email}</b> and that password.</>
+    : login === "confirm_email" ? <>First confirm your email: we sent a link to <b className="break-all">{email}</b>.</>
+    : login === "failed" ? <>We could not set up your login just now. Our team will help you with it on the call.</>
+    : <>Sign in with <b className="break-all">{email}</b> and your password.</>;
+  const canSignIn = login !== "failed" && login !== "confirm_email";
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="max-w-xl">
+      <span className="grid size-12 place-items-center rounded-full bg-(--forest) text-(--lime)"><Check className="size-6" strokeWidth={3} aria-hidden /></span>
+      <h1 className="ol-title mt-5 text-[clamp(2rem,4.4vw,3.1rem)] text-balance">{existing ? <>We already have <em>your application</em></> : <>Application <em>sent</em></>}</h1>
+      <p className="ol-lead mt-3 max-w-[34rem] text-lg text-pretty">
+        {existing ? <>Thank you, {business}. It is with our Latur team, who review every application.</> : <>Thank you, {business}. Our Latur team reviews every application and will call you to verify your details.</>}
+      </p>
+
+      {reference ? (
+        <section className="ol-card mt-8 overflow-hidden" aria-label="Your application code">
+          <div className="flex flex-wrap items-end justify-between gap-4 px-5 pt-5 pb-4 sm:px-6">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-(--soft)">{appCode ? "Your app code" : "Your application code"}</p>
+              <p className="mt-1 font-mono text-[clamp(1.6rem,5vw,2rem)] leading-none font-bold tracking-[0.08em] tabular-nums">{reference}</p>
+            </div>
+            <CopyButton text={reference} />
+          </div>
+          <p className="border-t border-(--line) bg-(--cream-2) px-5 py-3 text-[0.95rem] sm:px-6">Keep this code. Our team asks for it on the call{appCode ? ", and it also signs you in to the Partner app" : ""}.</p>
+        </section>
+      ) : (
+        <p className="ol-card mt-8 px-5 py-4 text-[0.95rem]">For your safety we do not show the code of an application we already have. Our Latur team will call you on the number you gave.</p>
+      )}
+
+      <h2 className="ol-display mt-10 text-xl">What happens next</h2>
+      <ol className="mt-4 grid gap-5">
+        {[
+          { icon: Phone, head: "We call you", body: "Our Latur team calls to verify your business and answer your questions." },
+          { icon: LayoutDashboard, head: "Finish your details on the dashboard", body: <>Add your PAN, bank account and documents, and set up your catalogue. {loginLine}</> },
+          { icon: Store, head: "Go live", body: "Once approved, you take orders and bookings on OneLocal and bill at the counter." },
+        ].map(({ icon: I, head, body }, i) => (
+          <li key={head} className="grid grid-cols-[2.75rem_1fr] gap-x-4">
+            <span className={cn("grid size-11 place-items-center rounded-[0.8rem]", i === 0 ? "bg-(--forest) text-(--lime)" : "ol-ico")}><I className="size-5" aria-hidden /></span>
+            <div className="pt-0.5"><p className="ol-label text-[1.05rem]">{head}</p><p className="ol-lead mt-0.5 text-[0.95rem] text-pretty">{body}</p></div>
           </li>
         ))}
       </ol>
-      <div className="mt-6 flex flex-wrap items-center gap-4">
-        <Link href="/dashboard" className="ol-pill">Finish your application<ArrowRight className="size-5" aria-hidden /></Link>
+
+      <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-4">
+        {canSignIn && <Link href="/dashboard" className="ol-pill">Open my dashboard<ArrowRight className="size-5" aria-hidden /></Link>}
         <Link href="/" className="ol-label text-base underline underline-offset-4">Back to home</Link>
       </div>
     </motion.div>

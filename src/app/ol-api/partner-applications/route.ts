@@ -124,8 +124,9 @@ export async function POST(request: Request) {
       if (!r.ok) {
         const parsed = JSON.parse(text || "{}") as { message?: string; detail?: string; code?: string };
         // The function raises form problems with SQLSTATE P0400, which PostgREST reports as a 500.
-        const formProblem = parsed.code === "P0400" || r.status < 500;
-        return Response.json({ detail: parsed.message ?? parsed.detail ?? "Please check the form and try again." }, { status: formProblem ? 400 : 502 });
+        // Only the form's own messages (P0400) reach the browser; any other database error is answered in general words.
+        const formProblem = parsed.code === "P0400";
+        return Response.json({ detail: formProblem && parsed.message ? parsed.message : "Please check the form and try again." }, { status: formProblem || r.status < 500 ? 400 : 502 });
       }
       const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean };
       // The application is saved first; only a new submission creates the login, so a failed save or a repeat

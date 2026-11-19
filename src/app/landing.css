@@ -273,13 +273,7 @@ html:has(.ol-landing) { background: oklch(0.975 0.012 95); scrollbar-color: oklc
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Crect width='3' height='3'/%3E%3C/svg%3E");
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22'%3E%3Crect width='3' height='3'/%3E%3C/svg%3E"); }
 /* The dashboard page is the Partner app; the website's floating mascot stays out of its way. */
-html:has(.ol-appframe) [data-ol-floating] { display: none; }
-/* The panel the Partner app runs in on the dashboard page. Phone-shaped on a wide screen, so the app's phone
-   layout looks deliberate; edge to edge on a phone. */
-.ol-appframe { position: relative; height: 100%; overflow: hidden; background: #fff; }
-@media (min-width: 768px) {
-  .ol-appframe { width: 430px; max-height: 900px; border-radius: 1.75rem; border: 1px solid var(--line); box-shadow: 0 40px 70px -36px oklch(0.19 0.045 156 / 0.55); }
-}
+html:has(.ol-dashboard) [data-ol-floating] { display: none; }
 
 /* Ol sits on the page with a small soft shadow under him. The shadow belongs to the spot, not to him, so when he
    hops he leaves it on the ground. */

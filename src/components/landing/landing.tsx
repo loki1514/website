@@ -44,7 +44,7 @@ function useSmoothScroll() {
   }, []);
 }
 
-// Jump to one of the journey's stops (1 stores, 2 restaurants, 3 services).
+// Jump to one of the journey's stops (1 customer, 2 partner, 3 rider).
 function goToStop(stop: number) {
   const el = document.getElementById("journey");
   if (!el) return;
@@ -63,7 +63,7 @@ function Header({ t, chapters, stop, lang, setLang }: { t: LandingCopy["nav"]; c
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/onelocal-logo-on-dark.png" alt="OneLocal" className="h-5 w-auto sm:h-6" />
         </Link>
-        <nav aria-label="Kinds of business" className={`hidden items-center transition-opacity duration-500 md:flex ${stop === null ? "pointer-events-none opacity-0" : ""}`}>
+        <nav aria-label="How an order flows" className={`hidden items-center transition-opacity duration-500 md:flex ${stop === null ? "pointer-events-none opacity-0" : ""}`}>
           {chapters.map((c, i) => (
             <button key={c} type="button" onClick={() => goToStop(i + 1)} aria-current={active === i ? "step" : undefined} tabIndex={stop === null ? -1 : 0} className="ol-bar-tab">
               {active === i && <motion.span layoutId="ol-chapter" className="absolute inset-0 rounded-full bg-(--lime)" transition={{ type: "spring", stiffness: 380, damping: 34 }} />}

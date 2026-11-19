@@ -1,8 +1,8 @@
 "use client";
 
-// The top of the page. A phone stays pinned while the scroll moves through the three kinds of business One Local is
-// for: stores, restaurants, services. The first stop is the headline; each stop after it says what One Local means for
-// that kind of business. One button, "Become a partner", stays in the same place the whole way through.
+// The top of the page. A phone stays pinned while the scroll follows one order through OneLocal: the customer orders,
+// the partner gets and bills it, the rider delivers it (19 Nov 2026). The first stop is the headline; each stop after it
+// shows that person's app. One button, "Become a partner", stays in the same place the whole way through.
 // The map behind is that journey too: scrolling slides the map past, each kind of business stands on it as a peak
 // ringed by contour lines, and a line of squares between them darkens as the visitor moves on. On screens too narrow
 // for that, a small tracker above the words does the same job (tracker.tsx).
@@ -12,23 +12,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
-import { ArrowRight, Store, UtensilsCrossed, Wrench } from "lucide-react";
+import { ArrowRight, Bike, ShoppingBag, Store } from "lucide-react";
 import type { LandingCopy } from "@/lib/landing-copy";
 import { ContourField, ROUTE_STEP, type Mood, type Route } from "./contour-field";
 import { Tracker } from "./tracker";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
-// Stops: 0 the headline, 1 stores, 2 restaurants, 3 services.
+// Stops: 0 the headline, 1 customer, 2 partner, 3 rider (how an order flows, 19 Nov 2026).
 export const STOPS = 4;
 const MOOD: Mood[] = ["day", "sage", "sand", "sage"];
-// One icon per kind of business, in the order the copy lists them: stores, restaurants, services.
-export const PLACE_ICONS = [Store, UtensilsCrossed, Wrench];
-// The app screen in the phone at stops 1 to 3: where each kind of business lives in the One Local customer app.
-// Captured from the customer app on main, running on the live server, on 18 Nov 2026.
+// One icon per stop, in the order the copy lists them: customer, partner, rider.
+export const PLACE_ICONS = [ShoppingBag, Store, Bike];
+// The app screen in the phone at stops 1 to 3: the customer app, the Partner app, the Rider app.
+// Captured from each app on main, running on the live server, on 18 Nov 2026.
 const SHOTS = [
-  { src: "/shots/customer-stores.jpg", alt: "The One Local app's categories: dairy, groceries, beauty and household items from local stores" },
-  { src: "/shots/customer-food.jpg", alt: "The One Local app's food tab, with Latur's restaurants" },
-  { src: "/shots/customer-services.jpg", alt: "The One Local app's Book It tab: dining, events, activities and appointments" },
+  { src: "/shots/customer-app.jpg", alt: "The OneLocal customer app, where people in the city find and order from local businesses" },
+  { src: "/shots/partner-app.jpg", alt: "The OneLocal Partner app, where the business gets the order and bills it" },
+  { src: "/shots/rider-app.jpg", alt: "The OneLocal Rider app, where the rider picks up and delivers the order" },
 ];
 
 // How far along the route the visitor is (0 at the first place, 2 at the last) for a scroll position. At each stop

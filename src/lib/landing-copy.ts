@@ -25,9 +25,9 @@ const en: LandingCopy = {
   hero: {
     title: "Grow your sales with *OneLocal.*",
     lanes: [
-      { name: "Stores", line: "Become stronger together, prepared against quick commerce." },
-      { name: "Restaurants", line: "Save against high food delivery commissions." },
-      { name: "Services", line: "Come online before a national brand comes to your city." },
+      { name: "Customer", line: "People in your city find your shop, menu or service on OneLocal and order in a few taps." },
+      { name: "Partner", line: "You get the order in the Partner app, bill it on the same POS and keep your stock right." },
+      { name: "Rider", line: "A OneLocal rider, or your own, picks it up and brings it to the customer's door." },
     ],
   },
   together: {
@@ -89,9 +89,9 @@ const hinglish: LandingCopy = {
   hero: {
     title: "OneLocal ke saath apni *bikri badhaiye.*",
     lanes: [
-      { name: "Stores", line: "Saath milkar mazboot baniye, quick commerce ke liye taiyaar." },
-      { name: "Restaurants", line: "Food delivery ke oonche commission se bachiye." },
-      { name: "Services", line: "National brand ke aane se pehle apne sheher mein online aaiye." },
+      { name: "Customer", line: "Aapke sheher ke log OneLocal par aapki shop, menu ya service dhoondhte hain aur kuch taps mein order karte hain." },
+      { name: "Partner", line: "Order aapko Partner app mein milta hai, wahi POS par bill banta hai aur stock sahi rehta hai." },
+      { name: "Rider", line: "OneLocal ka rider, ya aapka apna, order uthata hai aur customer ke ghar tak pahunchata hai." },
     ],
   },
   together: {
