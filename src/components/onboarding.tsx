@@ -33,9 +33,11 @@ type Form = {
   address_line: string; locality: string; landmark: string; address: string; pin_code: string; location_lat: number | null; location_lng: number | null; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
   // Asked for the team's first call; sent in `notes`, not as fields of their own.
   billing: string; call_time: string;
+  // 0740: the number the partner proved with the SMS code (empty until then; a changed number must be proven again)
+  phone_verified: string;
 };
-const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address_line: "", locality: "", landmark: "", address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "" };
-type Screen = "name" | "type" | "you" | "family" | "category" | "rtypes" | "where" | "delivery" | "papers" | "call" | "password" | "review";
+const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address_line: "", locality: "", landmark: "", address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "", phone_verified: "" };
+type Screen = "name" | "type" | "you" | "verify" | "family" | "category" | "rtypes" | "where" | "delivery" | "papers" | "call" | "password" | "review";
 // Drafts saved on this browser by the older, longer screens point at steps that are now split up.
 const OLD_SCREENS: Record<string, Screen> = { start: "name", subcats: "category", business: "where", finish: "password", account: "password" };
 const STORAGE = "onelocal.partner-onboarding.v1";
@@ -54,6 +56,7 @@ const storeImg = (slug: string) => `/onboarding/stores/${slug}.webp`;
 // The address the review queue reads in one line: shop and building, street and area, landmark, city.
 const fullAddress = (f: Form) => [f.address_line, f.locality, f.landmark && `Near ${f.landmark}`, "Latur"].map(x => x.trim()).filter(Boolean).join(", ");
 
+const digits10 = (v: string) => v.replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, "");
 const phoneOk = (v: string) => /^[6-9]\d{9}$/.test(v.replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, ""));
 const emailOk = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim());
 const passwordOk = (p: string) => p.length >= 8 && /[A-Za-z]/.test(p) && /\d/.test(p);
@@ -61,7 +64,7 @@ const passwordOk = (p: string) => p.length >= 8 && /[A-Za-z]/.test(p) && /\d/.te
 function screensFor(t: PartnerType): Screen[] {
   const what: Screen[] = t === "store" ? ["family", "category"] : t === "service" ? ["category"] : ["rtypes"];
   const delivery: Screen[] = t === "store" || t === "restaurant" ? ["delivery"] : [];
-  return ["name", "type", "you", ...what, "where", ...delivery, "papers", "call", "password", "review"];
+  return ["name", "type", "you", "verify", ...what, "where", ...delivery, "papers", "call", "password", "review"];
 }
 
 type Setter = <K extends keyof Form>(k: K, v: Form[K]) => void;
@@ -77,7 +80,9 @@ export function Onboarding({ fonts }: { fonts: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ reference: string | null; existing: boolean; login?: string; appCode?: boolean; approved?: boolean; blocked?: string } | null>(null);
+  const [code, setCode] = useState("");          // the SMS code being typed (never saved)
+  const [codeSentTo, setCodeSentTo] = useState(""); // the number the last code went to
+  const [done, setDone] = useState<{ reference: string | null; existing: boolean; login?: string; appCode?: boolean; blocked?: string } | null>(null);
   const key = useRef("");
 
   const flow = screensFor(f.partner_type);
@@ -166,10 +171,12 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (s === "you") return f.owner_name.trim().length < 2 ? "Type the owner's full name." : !phoneOk(f.phone) ? "Type a 10-digit mobile number." : !emailOk(f.email) ? "Type a valid email." : !f.consent ? "Please tick the box so we can save your application." : null;
     if (s === "family") return f.category_family ? null : "Choose one.";
     if (s === "category") return !f.categories.length ? "Choose at least one category." : f.subcategories.length > 30 ? "Tick up to 30 items." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
+    if (s === "verify") return f.phone_verified === digits10(f.phone) ? null : !/^\d{6}$/.test(code) ? "Type the 6-digit code we sent to your number." : null;
     if (s === "rtypes") return f.subcategories.length ? null : "Pick at least one type of food.";
     if (s === "where") return f.location_lat == null ? "Move the map until the pin is on your shop." : f.address_line.trim().length < 2 ? "Type your shop number and building." : f.locality.trim().length < 2 ? "Type the street and area." : !/^[1-9]\d{5}$/.test(f.pin_code) ? "PIN code must be 6 digits." : null;
     if (s === "delivery") return f.services.length ? null : "Choose at least one.";
     if (s === "papers") return f.gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(f.gstin.toUpperCase()) ? "GSTIN looks wrong (15 characters)." : f.fssai && !/^\d{14}$/.test(f.fssai) ? "FSSAI licence is 14 digits." : null;
+    if (s === "review" && f.phone_verified !== digits10(f.phone)) return "Your mobile number changed: confirm it with the code first (tap Edit on You, then Next).";
     if (s === "password") return !passwordOk(pw.password) ? "Password needs 8+ characters with a letter and a number." : pw.password !== pw.confirm ? "The two passwords don’t match." : null;
     return null;
   };
@@ -181,7 +188,19 @@ export function Onboarding({ fonts }: { fonts: string }) {
     const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, address, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
     const body = r ? await r.json().catch(() => ({})) : {};
     if (!r || !r.ok) throw new Error(body?.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
-    return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean; approved?: boolean; blocked?: string };
+    return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean; blocked?: string };
+  };
+
+  // 0740: the SMS code that proves the number (the website's server talks to Supabase)
+  const phoneCall = async (body: Record<string, string>) => {
+    const r = await fetch(`${API}/partner-phone`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, phone: digits10(f.phone), submit_key: key.current }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { sent?: boolean; verified?: boolean; other_email?: string; detail?: string }) : {};
+    if (!r?.ok) throw new Error(j.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
+    return j;
+  };
+  const sendCode = async () => {
+    setError(null); setCode("");
+    try { await phoneCall({ action: "send" }); setCodeSentTo(digits10(f.phone)); } catch (err) { setError((err as Error).message); }
   };
 
   const next = async () => {
@@ -190,7 +209,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (e) { setError(e); say(screen === "password" && passwordOk(pw.password) && pw.password !== pw.confirm ? "passwordMismatch" : "error", "confused"); return; }
     if (screen === "review") {
       setBusy(true); say("submitting", "thinking");
-      try { const r = await post("submit"); say("success", "celebrate"); react("celebrate", 7000); setPw({ password: "", confirm: "" }); setDone({ reference: r.reference, existing: r.existing, login: r.login, appCode: r.app_code, approved: r.approved, blocked: r.blocked }); try { localStorage.removeItem(STORAGE); } catch { /* ignore */ } }
+      try { const r = await post("submit"); say("success", "celebrate"); react("celebrate", 7000); setPw({ password: "", confirm: "" }); setDone({ reference: r.reference, existing: r.existing, login: r.login, appCode: r.app_code, blocked: r.blocked }); try { localStorage.removeItem(STORAGE); } catch { /* ignore */ } }
       catch (err) { setError((err as Error).message); say("error", "sad"); }
       finally { setBusy(false); }
       return;
@@ -199,6 +218,24 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (screen === "you") {
       setBusy(true); setSaved("saving");
       try { await post("draft"); setSaved("saved"); } catch (err) { setBusy(false); setSaved("idle"); setError((err as Error).message); say("error", "sad"); return; }
+      // a number not proven yet gets its code now, on the way to the code step
+      if (f.phone_verified !== digits10(f.phone) && codeSentTo !== digits10(f.phone)) {
+        try { await phoneCall({ action: "send" }); setCodeSentTo(digits10(f.phone)); setCode(""); }
+        catch (err) { setBusy(false); setError((err as Error).message); say("error", "sad"); return; }
+      }
+      setBusy(false);
+    }
+    if (screen === "verify" && f.phone_verified !== digits10(f.phone)) {
+      setBusy(true);
+      try {
+        const r = await phoneCall({ action: "verify", code, email: f.email.trim().toLowerCase() });
+        if (r.other_email) {
+          setBusy(false);
+          setError(`This number already has a OneLocal login with ${r.other_email}. Go back and use that email, or use another number.`);
+          say("error", "confused"); return;
+        }
+        set("phone_verified", digits10(f.phone)); setCode("");
+      } catch (err) { setBusy(false); setError((err as Error).message); say("error", "sad"); return; }
       setBusy(false);
     }
     if (screen === "you") say("draftSaved", "excited"); else if (flow[index + 1] === "review") say("review", "proud"); else say("next", "excited");
@@ -262,13 +299,14 @@ export function Onboarding({ fonts }: { fonts: string }) {
 
         <main className="ol-form-main mx-auto grid w-full max-w-6xl flex-1 gap-x-12 px-5 pt-14 pb-10 md:px-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:px-10 lg:pt-10">
           <div className="min-w-0">
-            {done ? <Done reference={done.reference} existing={done.existing} business={f.business_name} email={f.email} login={done.login} appCode={done.appCode} approved={done.approved} blocked={done.blocked} /> : (
+            {done ? <Done reference={done.reference} existing={done.existing} business={f.business_name} email={f.email} login={done.login} appCode={done.appCode} blocked={done.blocked} /> : (
               <form noValidate onSubmit={e => { e.preventDefault(); void next(); }} className="max-w-xl">
                 <AnimatePresence mode="wait" custom={dir} initial={false}>
                   <motion.section key={screen} custom={dir} variants={variants} initial="enter" animate="center" exit="exit">
                     {screen === "name" && <Name f={f} set={set} />}
                     {screen === "type" && <Type value={f.partner_type} onPick={pickType} />}
                     {screen === "you" && <You f={f} set={set} />}
+                    {screen === "verify" && <Verify phone={digits10(f.phone)} verified={f.phone_verified === digits10(f.phone)} code={code} setCode={v => { setCode(v); setError(null); }} onResend={sendCode} />}
                     {screen === "family" && <Family value={f.category_family} onPick={pickFamily} />}
                     {screen === "category" && <WhatYouSell f={f} onCategory={pickCategory} onToggle={toggle} />}
                     {screen === "rtypes" && <RestaurantTypes values={f.subcategories} onToggle={toggle} />}
@@ -384,6 +422,32 @@ function You({ f, set }: { f: Form; set: Setter }) {
   </>;
 }
 
+// 0740: the SMS code that proves the mobile number, so the partner can later sign in with it.
+function Verify({ phone, verified, code, setCode, onResend }: { phone: string; verified: boolean; code: string; setCode: (v: string) => void; onResend: () => Promise<void> }) {
+  const [wait, setWait] = useState(30);
+  useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait(w => w - 1), 1000); return () => clearTimeout(t); }, [wait]);
+  const masked = `+91 ${phone.slice(0, 2)}xxxxxx${phone.slice(-2)}`;
+  if (verified) return <>
+    <Q help="You can sign in with this number or your email later.">Number <em>confirmed</em></Q>
+    <p className="ol-card mt-7 flex w-fit items-center gap-2 px-4 py-3 text-[0.95rem] font-semibold"><Check className="size-5 text-(--leaf)" strokeWidth={3} />{masked}</p>
+  </>;
+  return <>
+    <Q help={<>We sent a 6-digit code to <b>{masked}</b>. It proves the number is yours, so you can sign in with it later.</>}>Type the <em>code</em></Q>
+    <div className="mt-7 max-w-xs">
+      <Field label="Code from the SMS">
+        <Input autoFocus value={code} tip="otp" onValue={v => setCode(v.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" inputMode="numeric" autoComplete="one-time-code"
+          className="text-center font-mono text-xl tracking-[0.5em] indent-[0.5em] tabular-nums" maxLength={6} />
+      </Field>
+    </div>
+    <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-[0.95rem]">
+      <button type="button" disabled={wait > 0} onClick={() => { setWait(30); void onResend(); }} className="font-semibold underline underline-offset-4 disabled:text-(--soft) disabled:no-underline">
+        {wait > 0 ? `Send again in ${wait}s` : "Send the code again"}
+      </button>
+      <span className="text-(--soft)">Wrong number? Go back one step to change it.</span>
+    </div>
+  </>;
+}
+
 function Family({ value, onPick }: { value: string; onPick: (v: string) => void }) {
   return <>
     <Q>Which is <em>closer</em> to your shop?</Q>
@@ -461,9 +525,10 @@ function Where({ f, set }: { f: Form; set: Setter }) {
     <Q help="Riders use the pin to reach you, and customers nearby find you by it.">Where is your <em>shop</em>?</Q>
     <MapPin value={pin} onPin={(p, found) => {
       set("location_lat", p.lat); set("location_lng", p.lng);
-      // Google's address fills the boxes the partner has not typed in yet; what they typed is never overwritten
-      if (found?.pin_code && !f.pin_code) set("pin_code", found.pin_code);
-      if (found?.locality && !f.locality.trim()) set("locality", found.locality);
+      // the pin decides the street / area and the PIN: every move fills them again (the partner can still correct them after);
+      // shop no. and landmark are the partner's own and are never touched
+      if (found?.pin_code) set("pin_code", found.pin_code);
+      if (found?.locality) set("locality", found.locality);
     }} />
     <p className="ol-label mt-8 mb-3 text-base">Address details</p>
     <div className="grid gap-4">
@@ -605,7 +670,7 @@ function SignInOffer() {
 }
 
 // After sending: the application's code, how to sign in, and what happens next, in that order.
-// What the server could tell about the store (database 0737): approved on the spot, or why it could not be made yet.
+// Why the server could not make the store yet, if it could not (database 0737).
 const BLOCKED: Record<string, string> = {
   phone_in_use: "This mobile number is already registered with another OneLocal business, so we could not set up your store yet. Our team will call you to sort it out.",
   email_in_use: "This email is already registered with another OneLocal business, so we could not set up your store yet. Our team will call you to sort it out.",
@@ -613,7 +678,7 @@ const BLOCKED: Record<string, string> = {
   store_not_created: "We could not set up your store just now. Our team will set it up when they call you.",
 };
 
-function Done({ reference, existing, business, email, login, appCode, approved, blocked }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean; approved?: boolean; blocked?: string }) {
+function Done({ reference, existing, business, email, login, appCode, blocked }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean; blocked?: string }) {
   const loginLine = appCode || login === "created" ? <>Sign in with <b className="break-all">{email}</b> and the password you just set.</>
     : login === "exists" ? <>This email already had a OneLocal login, so your store uses it. Sign in with that login: its password, or Google in the Partner app.</>
     : login === "confirm_email" ? <>First confirm your email: we sent a link to <b className="break-all">{email}</b>.</>
@@ -624,11 +689,10 @@ function Done({ reference, existing, business, email, login, appCode, approved, 
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="max-w-xl">
       <span className="grid size-12 place-items-center rounded-full bg-(--forest) text-(--lime)"><Check className="size-6" strokeWidth={3} aria-hidden /></span>
       <h1 className="ol-title mt-5 text-[clamp(2rem,4.4vw,3.1rem)] text-balance">
-        {existing ? <>We already have <em>your application</em></> : approved ? <>You&apos;re <em>approved</em></> : <>Application <em>sent</em></>}
+        {existing ? <>We already have <em>your application</em></> : <>Application <em>sent</em></>}
       </h1>
       <p className="ol-lead mt-3 max-w-[34rem] text-lg text-pretty">
         {existing ? <>Thank you, {business}. It is with our Latur team, who review every application.</>
-          : approved ? <>Welcome to OneLocal, {business}. Your store is ready: sign in to your dashboard to set it up. Our Latur team will still call you to verify your details.</>
           : <>Thank you, {business}. Our Latur team reviews every application and will call you to verify your details.</>}
       </p>
       {blocked && BLOCKED[blocked] && <p role="status" className="ol-card mt-6 px-5 py-4 text-[0.95rem] font-semibold">{BLOCKED[blocked]}</p>}

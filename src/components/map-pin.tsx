@@ -24,9 +24,12 @@ function loadMaps(): Promise<void> {
   if (window.google?.maps) return Promise.resolve();
   window.__olMaps ??= new Promise<void>((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(KEY)}&v=weekly&region=IN&language=en`;
+    const cb = "__olMapsReady";
+    // with loading=async the map and the geocoder are filled in only when asked for
+    (window as any)[cb] = () => Promise.all([window.google.maps.importLibrary("maps"), window.google.maps.importLibrary("geocoding")])
+      .then(() => resolve(), reject);
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(KEY)}&v=weekly&region=IN&language=en&loading=async&callback=${cb}`;
     s.async = true;
-    s.onload = () => resolve();
     s.onerror = () => reject(new Error("maps"));
     document.head.appendChild(s);
   });
@@ -42,6 +45,16 @@ function readAddress(best: any): Found {
   const locality = [part(best, "sublocality_level_2"), part(best, "sublocality_level_1") || part(best, "neighborhood")].filter(Boolean).join(", ")
     || part(best, "route");
   const line = String(best?.formatted_address ?? "").replace(/,?\s*(India|Maharashtra)\b.*$/i, "").replace(/\s*\d{6}\s*$/, "").trim();
+  return { line, locality, pin_code: /^\d{6}$/.test(pin) ? pin : "" };
+}
+
+// The same from a Places API (New) place (its addressComponents / formattedAddress).
+const pPart = (pl: any, type: string) => pl?.addressComponents?.find((c: any) => c.types?.includes(type))?.longText ?? "";
+function readPlace(pl: any): Found {
+  const pin = pPart(pl, "postal_code");
+  const locality = [pPart(pl, "sublocality_level_2"), pPart(pl, "sublocality_level_1") || pPart(pl, "neighborhood")].filter(Boolean).join(", ")
+    || pPart(pl, "route");
+  const line = String(pl?.formattedAddress ?? "").replace(/,?\s*(India|Maharashtra)\b.*$/i, "").replace(/\s*\d{6}\s*$/, "").trim();
   return { line, locality, pin_code: /^\d{6}$/.test(pin) ? pin : "" };
 }
 
@@ -61,23 +74,39 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
   const [open, setOpen] = useState(false);
   const places = useRef<any>(null);       // the Places library, once loaded; false when this key cannot use it
   const session = useRef<any>(null);      // one autocomplete session per search, as Google bills it
+  const picked = useRef<string | null>(null); // the text a chosen place filled in: not searched again
   const [spot, setSpot] = useState<string | null>(null);
 
+  // The address for a spot: Google's geocoder, or (when the key may not use it) the nearest place Google knows, from Places.
   const lookUp = async (p: Pin): Promise<Found | null> => {
     if (!window.google?.maps) return null;
     try {
       const { results } = await new window.google.maps.Geocoder().geocode({ location: p });
-      return results?.[0] ? readAddress(results[0]) : null;
+      if (results?.[0]) return readAddress(results[0]);
+    } catch { /* not allowed for this key: Places below */ }
+    try {
+      const lib = await window.google.maps.importLibrary("places");
+      const { places: near } = await lib.Place.searchNearby({
+        fields: ["addressComponents", "formattedAddress"], locationRestriction: { center: p, radius: 250 },
+        maxResultCount: 1, rankPreference: lib.SearchNearbyRankPreference.DISTANCE,
+      });
+      return near?.[0] ? readPlace(near[0]) : null;
     } catch { return null; }
   };
+  // A place just picked from the search already has its address: the map's next rest uses it instead of looking up again.
+  const pickedFound = useRef<Found | null>(null);
 
   // The pin is the middle of the map: called whenever the map comes to rest after the partner moved it.
   const settle = async () => {
     if (!map.current || !moved.current) return;
     const c = map.current.getCenter();
     const pin = { lat: round(c.lat()), lng: round(c.lng()) };
-    const found = await lookUp(pin);
+    const fromPick = pickedFound.current;
+    const found = fromPick ?? await lookUp(pin);
+    pickedFound.current = null;
     setSpot(found?.line || null);
+    // the search bar follows the pin when the map was dragged (a picked place keeps the name the partner chose)
+    if (!fromPick && found?.line) { picked.current = found.line; setQuery(found.line); setOpen(false); }
     onPinRef.current(pin, found);
   };
 
@@ -123,7 +152,7 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
   // Suggestions as the partner types, kept near Latur. Without the Places API on the key, Enter still finds the place (search below).
   useEffect(() => {
     const q = query.trim();
-    if (state !== "ready" || q.length < 3) { setHits([]); return; }
+    if (state !== "ready" || q.length < 3 || q === picked.current) { setHits([]); return; }
     let gone = false;
     const t = setTimeout(async () => {
       try {
@@ -131,7 +160,9 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
         if (!places.current || gone) return;
         session.current ??= new places.current.AutocompleteSessionToken();
         const { suggestions } = await places.current.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-          input: q, sessionToken: session.current, includedRegionCodes: ["in"], locationBias: { center: LATUR, radius: 40000 },
+          // only places in and around Latur (OneLocal is open in Latur for now)
+          input: q, sessionToken: session.current, includedRegionCodes: ["in"],
+          locationRestriction: { south: 17.9, west: 75.9, north: 18.9, east: 77.2 },
         });
         if (gone) return;
         setHits((suggestions ?? []).map((x: any) => x.placePrediction).filter(Boolean).slice(0, 5)
@@ -143,29 +174,36 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
   }, [query, state]);
 
   const pick = async (h: { main: string; sub: string; pred: any }) => {
-    setOpen(false); setHits([]); setQuery(h.sub ? `${h.main}, ${h.sub}` : h.main); setNote(null);
+    const text = h.sub ? `${h.main}, ${h.sub}` : h.main;
+    picked.current = text;
+    setOpen(false); setHits([]); setQuery(text); setNote(null);
     try {
       const place = h.pred.toPlace();
-      await place.fetchFields({ fields: ["location"] });
+      await place.fetchFields({ fields: ["location", "addressComponents", "formattedAddress"] });
       session.current = null;   // the session ends with a chosen place
+      pickedFound.current = readPlace(place);
       if (place.location) goTo({ lat: place.location.lat(), lng: place.location.lng() }, 18);
     } catch { setNote("We could not open that place. Try another one, or move the map."); }
   };
 
-  // Search an area, street or landmark, kept to Latur (Enter, or when suggestions are not available).
+  // Find / Enter: the first suggestion when there is one, else Google's text search for the place (Places API, New), kept to Latur.
   const search = async () => {
     const q = query.trim();
     if (!q || !window.google?.maps) return;
-    setNote(null);
+    if (hits[0]) { void pick(hits[0]); return; }
+    setNote(null); setOpen(false);
     try {
-      const { results } = await new window.google.maps.Geocoder().geocode({
-        address: `${q}, Latur, Maharashtra`, componentRestrictions: { country: "IN" },
-        bounds: { south: 17.9, west: 75.9, north: 18.9, east: 77.2 },
+      const lib = await window.google.maps.importLibrary("places");
+      const { places: found } = await lib.Place.searchByText({
+        textQuery: q, fields: ["location", "addressComponents", "formattedAddress"], maxResultCount: 1,
+        locationRestriction: { south: 17.9, west: 75.9, north: 18.9, east: 77.2 },
       });
-      const loc = results?.[0]?.geometry?.location;
-      if (!loc) { setNote("We could not find that place. Try an area or a landmark near your shop."); return; }
-      goTo({ lat: loc.lat(), lng: loc.lng() }, 17);
-    } catch { setNote("We could not find that place. Try an area or a landmark near your shop."); }
+      const place = found?.[0];
+      if (!place?.location) { setNote(`We could not find "${q}" in Latur. Try your shop's name, a street or a landmark near it, or move the map.`); return; }
+      pickedFound.current = readPlace(place);
+      picked.current = q;
+      goTo({ lat: place.location.lat(), lng: place.location.lng() }, 18);
+    } catch { setNote("Search is not working right now. Move the map to put the pin on your shop."); }
   };
 
   return (
@@ -206,7 +244,7 @@ export function MapPin({ value, onPin }: { value: Pin | null; onPin: (pin: Pin, 
               <div className="absolute inset-0 grid place-items-center bg-[#e8efe4] p-6 text-center">
                 <div>
                   <p className="text-[0.95rem] font-semibold">The map could not load.</p>
-                  <p className="mt-1 text-sm text-(--soft)">Stand at your shop and use your current location instead.</p>
+                  <p className="mt-1 text-sm text-(--soft)">Please reload the page in a minute. If you are at your shop now, you can use your current location instead.</p>
                   <button type="button" onClick={here} disabled={busy} className="ol-pill is-quiet mt-4 !min-h-11 !px-5 bg-white">
                     <LocateFixed className="size-4.5" aria-hidden />{busy ? "Finding you…" : "Use my current location"}
                   </button>

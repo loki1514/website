@@ -52,6 +52,42 @@ async function allowed(kind: "send" | "verify" | "password", ip: string, login: 
   }
 }
 
+// 0743: the owner login of the business whose registered number this is (Master's contact number), if any.
+async function businessOwner(phone: string): Promise<string | null> {
+  if (!SERVICE_KEY) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_phone_signin_owner`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_phone: phone.replace(/^\+91/, "") }),
+      cache: "no-store",
+    });
+    return r.ok ? ((await r.json().catch(() => null)) as string | null) : null;
+  } catch {
+    return null;
+  }
+}
+
+// A session for [userId], made on the server (Auth admin: a one-time sign-in link, spent at once; no email goes out).
+async function sessionFor(userId: string): Promise<string | null> {
+  if (!SERVICE_KEY) return null;
+  const admin = { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` };
+  try {
+    const u = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, { headers: admin, cache: "no-store" });
+    const email = u.ok ? ((await u.json().catch(() => ({}))) as { email?: string }).email : undefined;
+    if (!email) return null;
+    const g = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, { method: "POST", headers: admin, body: JSON.stringify({ type: "magiclink", email }), cache: "no-store" });
+    const link = g.ok ? ((await g.json().catch(() => ({}))) as { hashed_token?: string; properties?: { hashed_token?: string } }) : {};
+    const hash = link.properties?.hashed_token ?? link.hashed_token;
+    if (!hash) return null;
+    const v = await fetch(`${SUPABASE_URL}/auth/v1/verify`, { method: "POST", headers: { "content-type": "application/json", apikey: SUPABASE_KEY!, authorization: `Bearer ${SUPABASE_KEY}` }, body: JSON.stringify({ type: "magiclink", token_hash: hash }), cache: "no-store" });
+    const j = v.ok ? ((await v.json().catch(() => ({}))) as { refresh_token?: string }) : {};
+    return j.refresh_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const signedIn = (token: string) => Response.json({ session: token }, { headers: { "cache-control": "no-store" } });
 
 export async function POST(request: Request) {
@@ -73,7 +109,9 @@ export async function POST(request: Request) {
 
   try {
     if (p.action === "send") {
-      const { r, code, msg } = await auth("otp", { ...who, create_user: false }, forwarded);
+      // a business's registered number with no login of its own still gets the code (0743): a number-only login holds it
+      const owner = byPhone ? await businessOwner(key) : null;
+      const { r, code, msg } = await auth("otp", { ...who, create_user: !!owner, ...(owner ? { data: { signup_source: "partner_sign_in" } } : {}) }, forwarded);
       // The same answer whether or not the login exists, so this cannot be used to find out who has an account.
       if (r.ok || code === "otp_disabled" || msg.includes("signups not allowed") || msg.includes("user not found")) return Response.json({ sent: true });
       if (r.status === 429 || code.includes("rate_limit") || msg.includes("seconds")) return say("Please wait a minute before asking for another code.", 429);
@@ -85,7 +123,16 @@ export async function POST(request: Request) {
       const code = typeof p.code === "string" ? p.code.replace(/\D/g, "") : "";
       if (!/^\d{6}$/.test(code)) return say("Type the 6-digit code.");
       const { r, j, code: err, msg } = await auth("verify", { ...who, token: code, type: byPhone ? "sms" : "email" }, forwarded);
-      if (r.ok && j.refresh_token) return signedIn(j.refresh_token);
+      if (r.ok && j.refresh_token) {
+        // the code proved who holds the business's registered number: sign in as that business's owner (0743)
+        const owner = byPhone ? await businessOwner(key) : null;
+        const verifiedUser = (j as { user?: { id?: string } }).user?.id;
+        if (owner && owner !== verifiedUser) {
+          const s2 = await sessionFor(owner);
+          if (s2) return signedIn(s2);
+        }
+        return signedIn(j.refresh_token);
+      }
       if (r.status === 429 || err.includes("rate_limit")) return say("Too many tries. Wait a few minutes and ask for a new code.", 429);
       if (err === "otp_expired" || msg.includes("expired") || msg.includes("invalid")) return say("That code is not right, or it has expired. Check it, or ask for a new one.");
       return say("We couldn't sign you in just now. Please try again.", 502);

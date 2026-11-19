@@ -71,9 +71,9 @@ async function createLogin(email: string, password: string, meta: Record<string,
 // Links the login that was just created to the application and makes the partner's store (Pending until approved). The database only
 // accepts a login created in the last hour with the application's own email, so an email that already had an account is never linked.
 // Returns true when the application now has a login the app can sign in with the code for. Never throws: the sign-up has already worked.
-type Attached = { linked: boolean; approved: boolean; reason?: string };
+type Attached = { linked: boolean; reason?: string };
 async function attachLogin(reference: string, userId: string): Promise<Attached> {
-  const none: Attached = { linked: false, approved: false };
+  const none: Attached = { linked: false };
   if (!SERVICE_KEY) return none;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_attach_login`, {
@@ -83,18 +83,18 @@ async function attachLogin(reference: string, userId: string): Promise<Attached>
       cache: "no-store",
     });
     if (!r.ok) return none;
-    // 0737: also whether the application was approved on the spot (auto-approval), or why its store could not be made
-    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; approved?: boolean; reason?: string };
-    return { linked: j.linked === true, approved: j.approved === true, reason: typeof j.reason === "string" ? j.reason : undefined };
+    // 0737: also why its store could not be made, if it could not
+    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; reason?: string };
+    return { linked: j.linked === true, reason: typeof j.reason === "string" ? j.reason : undefined };
   } catch {
     return none;
   }
 }
 
 // The email already has a OneLocal login (a customer's, say: one person, one login). Database 0738 links that login to the
-// application when its email is confirmed, then makes and approves the store like a new login. The partner signs in with it.
+// application when its email is confirmed, then makes the store (Pending until approved) like a new login. The partner signs in with it.
 async function attachExistingLogin(reference: string): Promise<Attached> {
-  const none: Attached = { linked: false, approved: false };
+  const none: Attached = { linked: false };
   if (!SERVICE_KEY) return none;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_attach_existing_login`, {
@@ -104,10 +104,41 @@ async function attachExistingLogin(reference: string): Promise<Attached> {
       cache: "no-store",
     });
     if (!r.ok) return none;
-    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; approved?: boolean; reason?: string };
-    return { linked: j.linked === true, approved: j.approved === true, reason: typeof j.reason === "string" ? j.reason : undefined };
+    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; reason?: string };
+    return { linked: j.linked === true, reason: typeof j.reason === "string" ? j.reason : undefined };
   } catch {
     return none;
+  }
+}
+
+// 0740: the login that holds the number the partner proved with the SMS code, if any. Adding the email and password to it makes ONE
+// login the partner can use with the number or the email. Returns the login's id when that worked; null when there is no proven login
+// or the email already belongs to another login (then the email's login is used, as before).
+async function loginOnProvenPhone(reference: string, email: string, password: string, meta: Record<string, string>): Promise<string | null> {
+  if (!SERVICE_KEY) return null;
+  try {
+    const q = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_phone_user`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_reference: reference }),
+      cache: "no-store",
+    });
+    const id = q.ok ? ((await q.json().catch(() => null)) as string | null) : null;
+    if (!id) return null;
+    const admin = { apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` };
+    // a login that already has another email is never changed (the person signs in with that one)
+    const cur = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(id)}`, { headers: admin, cache: "no-store" });
+    const had = cur.ok ? String(((await cur.json().catch(() => ({}))) as { email?: string }).email ?? "").toLowerCase() : "";
+    if (had && had !== email) return null;
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ email, password, email_confirm: true, user_metadata: meta }),
+      cache: "no-store",
+    });
+    return r.ok ? id : null;
+  } catch {
+    return null;
   }
 }
 
@@ -169,21 +200,31 @@ export async function POST(request: Request) {
         const formProblem = parsed.code === "P0400";
         return Response.json({ detail: formProblem && parsed.message ? parsed.message : "Please check the form and try again." }, { status: formProblem || r.status < 500 ? 400 : 502 });
       }
-      const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean; approved?: boolean; blocked?: string };
+      const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean; blocked?: string };
       // The application is saved first; only a new submission creates the login, so a failed save or a repeat
       // submit never makes a stray account. If the login fails the application still stands, and the answer says so.
       if (submit && !receipt.existing) {
-        const made = await createLogin(email, password as string, {
-          full_name: String(fields.owner_name ?? ""), business_name: String(fields.business_name ?? ""), signup_source: "partner_website",
-        }, SITE_URL ?? new URL(request.url).origin);
+        const meta = { full_name: String(fields.owner_name ?? ""), business_name: String(fields.business_name ?? ""), signup_source: "partner_website" };
+        // the login that already holds the proven number (0740), else a new email login (createLogin)
+        const onPhone = receipt.reference ? await loginOnProvenPhone(receipt.reference, email, password as string, meta) : null;
+        const made: { state: Login; id?: string } = onPhone ? { state: "created", id: onPhone }
+          : await createLogin(email, password as string, meta, SITE_URL ?? new URL(request.url).origin);
         receipt.login = made.state;
         // The reference is also the app code, but only when the login really belongs to this application.
         const attached = !receipt.reference ? null
+          : onPhone ? await attachExistingLogin(receipt.reference)
           : made.state === "created" && made.id ? await attachLogin(receipt.reference, made.id)
           : made.state === "exists" ? await attachExistingLogin(receipt.reference)
           : null;
+        if (!onPhone && made.state === "exists" && receipt.reference && SERVICE_KEY) {
+          await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_move_proven_phone`, {
+            method: "POST",
+            headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+            body: JSON.stringify({ p_reference: receipt.reference }),
+            cache: "no-store",
+          }).catch(() => null);
+        }
         receipt.app_code = attached?.linked ?? false;
-        receipt.approved = attached?.approved ?? false;
         if (attached?.reason) receipt.blocked = attached.reason;
       }
       return Response.json(receipt, { status: 201 });

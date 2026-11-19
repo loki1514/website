@@ -109,6 +109,22 @@
       ]
      },
      {
+      "name": "Stationery, art and party",
+      "icon": "shops-kids-school-and-office",
+      "store": "shops-kids-school-and-office",
+      "subcategories": [
+       "Stationery",
+       "School supplies",
+       "Office supplies",
+       "Books and notebooks",
+       "Art supplies",
+       "Craft and DIY",
+       "Gift wrap and cards",
+       "Party decor and balloons",
+       "Printing and photocopy"
+      ]
+     },
+     {
       "name": "Pets and garden",
       "icon": "shops-pets-and-garden",
       "store": "service-pet-care",
