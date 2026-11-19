@@ -117,9 +117,9 @@ type Channel = "phone" | "email";
 const maskPhone = (d: string) => `+91 ${d.slice(0, 2)}xxxxxx${d.slice(-2)}`;
 const maskEmail = (e: string) => e.replace(/^(.)[^@]*(@.*)$/, "$1•••$2");
 const RESEND_SECONDS = 30;
-// Codes by email need OneLocal's own email sender in Supabase (Authentication → Emails → SMTP) and a template that carries the code
-// ({{ .Token }}). Until both are set the built-in sender reaches no partner, so only the mobile number is offered. Switch on after that.
-const EMAIL_CODES_ON = false;
+// Codes by email: on since 20 Nov 2026. Supabase sends them through OneLocal's own sender (Hostinger SMTP, from no-reply@onelocal.co)
+// with a template that carries the code ({{ .Token }}); a test code and a password reset both reached a real inbox.
+const EMAIL_CODES_ON = true;
 
 async function ask(body: Record<string, string>) {
   const r = await fetch(`${API}/partner-sign-in`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
