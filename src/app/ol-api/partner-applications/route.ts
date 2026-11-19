@@ -7,10 +7,10 @@
 const BACKEND = (process.env.ONELOCAL_API_ORIGIN ?? "http://localhost:8100").replace(/\/$/, "");
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY;
-// The application function is called with the server-only secret key when one is set, so the public (anon) role
-// never needs EXECUTE on it. Supabase's Security Advisor flags anon-executable SECURITY DEFINER functions, and
-// revoking that grant is what broke sign-ups on 14 Oct 2026 ("permission denied for function ..."). This key must
-// never be exposed to the browser: no NEXT_PUBLIC_ prefix.
+// Server-only secret (never NEXT_PUBLIC_): the route uses it to create the login already confirmed, to link it to the application and make the
+// partner's store (database function ol_partner_application_attach_login, migration 0345), and to call the application function so the public
+// (anon) role never needs EXECUTE on it (Supabase's Security Advisor flags anon-executable SECURITY DEFINER functions; revoking that grant
+// is what broke sign-ups on 14 Oct 2026). Without it the sign-up still works; the partner just has no app code. Never expose it to the browser.
 const SERVICE_KEY = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_RPC_KEY = SERVICE_KEY ?? SUPABASE_KEY;
 // Where the confirmation email sends people: the website's own /auth/confirm page, never a supabase.co address.
@@ -68,10 +68,9 @@ async function createLogin(email: string, password: string, meta: Record<string,
   }
 }
 
-// Links the login that was just created to the application and makes the partner's store (Pending until approved), database
-// function ol_partner_application_attach_login (migration 0345). The database only accepts a login created in the last hour with
-// the application's own email, so an email that already had an account is never linked. True when the reference now works as the
-// app code. Never throws: the sign-up has already worked.
+// Links the login that was just created to the application and makes the partner's store (Pending until approved). The database only
+// accepts a login created in the last hour with the application's own email, so an email that already had an account is never linked.
+// Returns true when the application now has a login the app can sign in with the code for. Never throws: the sign-up has already worked.
 async function attachLogin(reference: string, userId: string): Promise<boolean> {
   if (!SERVICE_KEY) return false;
   try {
@@ -128,7 +127,7 @@ export async function POST(request: Request) {
         const formProblem = parsed.code === "P0400" || r.status < 500;
         return Response.json({ detail: parsed.message ?? parsed.detail ?? "Please check the form and try again." }, { status: formProblem ? 400 : 502 });
       }
-      const receipt = JSON.parse(text) as { reference: string; status: string; existing: boolean; login?: Login; app_code?: boolean };
+      const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean };
       // The application is saved first; only a new submission creates the login, so a failed save or a repeat
       // submit never makes a stray account. If the login fails the application still stands, and the answer says so.
       if (submit && !receipt.existing) {
@@ -137,7 +136,7 @@ export async function POST(request: Request) {
         }, SITE_URL ?? new URL(request.url).origin);
         receipt.login = made.state;
         // The reference is also the app code, but only when the login really belongs to this application.
-        receipt.app_code = made.state === "created" && !!made.id ? await attachLogin(receipt.reference, made.id) : false;
+        receipt.app_code = made.state === "created" && !!made.id && !!receipt.reference ? await attachLogin(receipt.reference, made.id) : false;
       }
       return Response.json(receipt, { status: 201 });
     }

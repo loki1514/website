@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal-page";
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Service Terms · OneLocal POS", description: "The terms for using the OneLocal POS app as a OneLocal partner business." };
+export const metadata: Metadata = { title: "Service Terms · OneLocal Partner", description: "The terms for using the OneLocal Partner app as a OneLocal partner business." };
 
 export default function Terms() {
   return (

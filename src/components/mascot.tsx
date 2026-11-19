@@ -13,17 +13,17 @@
 //   Places:      bottom-right on every page (with a tip bubble); on the onboarding page it hops onto the text box
 //                you are typing in and slides along with your text (MascotFollower).
 // Only those 16 animations are in ol.avatar.json, so the file stays small.
-import "@bible-strong/avatar-react/styles.css";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useAnimate } from "motion/react";
-import { createAvatar, type AvatarController } from "@bible-strong/avatar-react";
-import definition from "@/lib/ol.avatar.json";
+import dynamic from "next/dynamic";
+import type { AvatarController } from "@bible-strong/avatar-react";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
 import { olLine, OL_TIPS, type OlLang } from "@/lib/ol-lines";
 
-const Ol = createAvatar(definition as never);
+// Ol's drawing code is fetched after the page is up, so it never delays the first paint.
+const OlAvatar = dynamic(() => import("./mascot-avatar"), { ssr: false });
 
 export type Mood = "idle" | "waking" | "listening" | "thinking" | "working" | "happy" | "excited" | "curious" | "confused" | "sad" | "celebrate" | "playful" | "proud" | "laughing" | "drowsy" | "sleeping";
 
@@ -120,9 +120,9 @@ export function Mascot({ size = 140, className, label = "Ol, the OneLocal mascot
     else void animate(scope.current, { x: [0, -9, 9, -6, 4, 0] }, { duration: 0.5 });
   }, [jolt, reduce, animate, scope]);
   return (
-    <button type="button" onClick={() => say("laugh", "laughing")} aria-label={label} className={cn("cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#8cf52b]", className)}>
-      <span ref={scope} className="block" style={{ transformOrigin: "50% 100%" }}>
-        <Ol ref={ref as never} {...(reduce ? { defaultExpression: "neutral" as never } : { defaultAnimation: "idle" as never })} size={size} ariaLabel="Ol" />
+    <button type="button" onClick={() => say("laugh", "laughing")} aria-label={label} className={cn("ol-mascot cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#8cf52b]", className)}>
+      <span ref={scope} className="ol-mascot-body block" style={{ transformOrigin: "50% 100%" }}>
+        <OlAvatar controller={ref} still={reduce} size={size} />
       </span>
     </button>
   );
@@ -156,7 +156,7 @@ export function FloatingMascot() {
   }, [path]);
   if (path?.startsWith("/join")) return null; // the onboarding page runs its own MascotFollower
   return (
-    <div className="pointer-events-none fixed right-3 bottom-3 z-[2147483000] isolate flex items-end gap-2 sm:right-5 sm:bottom-5">
+    <div data-ol-floating className="pointer-events-none fixed right-3 bottom-3 z-[2147483000] isolate flex items-end gap-2 sm:right-5 sm:bottom-5">
       <AnimatePresence mode="wait">
         {tip && !closed && !asleep && (
           <motion.div key={tip} initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 4 }}

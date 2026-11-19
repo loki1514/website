@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SiteHeader } from "@/components/site-header";
+import { PageShell } from "@/components/page-shell";
 
 export const metadata: Metadata = { title: "Confirm your email · OneLocal", robots: { index: false } };
 
@@ -18,30 +18,26 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Prom
   const error = status === "failed" || Boolean(one(q.error) || one(q.error_description));
 
   let title: string, body: string;
-  if (status === "ok") [title, body] = ["Your email is confirmed.", "You can now sign in to the VINII Partner app with this email and the password you chose. Your store appears there once it is approved."];
-  else if (error) [title, body] = ["This link has expired or was already used.", "If you already confirmed, just sign in to the VINII Partner app. Otherwise our team will help you when we call."];
+  if (status === "ok") [title, body] = ["Your email is confirmed.", "You can now sign in to the One Local Partner app with this email and the password you chose. Your shop appears there once it is approved."];
+  else if (error) [title, body] = ["This link has expired or was already used.", "If you already confirmed, just sign in to the One Local Partner app. Otherwise our team will help you when we call."];
   else if (tokenHash) [title, body] = ["Confirm your email", "One tap and your OneLocal partner login is ready."];
-  else [title, body] = ["Your email is confirmed.", "You can now sign in to the VINII Partner app."];
+  else [title, body] = ["Your email is confirmed.", "You can now sign in to the One Local Partner app."];
 
   return (
-    <div className="min-h-dvh">
-      <SiteHeader />
-      <main className="mx-auto flex max-w-xl flex-col items-center px-5 py-24 text-center">
-        <p className="font-mono text-sm tracking-widest text-primary">ONELOCAL PARTNER</p>
-        <h1 className="mt-3 text-4xl font-extrabold tracking-tight">{title}</h1>
-        <p className="mt-3 text-muted-foreground">{body}</p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
-          {tokenHash && !status ? (
-            <form method="post" action="/auth/confirm/verify">
-              <input type="hidden" name="token_hash" value={tokenHash} />
-              <input type="hidden" name="type" value={type} />
-              <button type="submit" className="rounded-full bg-primary px-6 py-3 font-bold text-primary-foreground">Confirm my email</button>
-            </form>
-          ) : (
-            <Link href="/" className="rounded-full bg-primary px-6 py-3 font-bold text-primary-foreground">Go home</Link>
-          )}
-        </div>
-      </main>
-    </div>
+    <PageShell centred>
+      <h1 className="ol-display text-[clamp(2.2rem,6vw,3.75rem)]">{title}</h1>
+      <p className="mt-4 text-lg text-(--ink-soft)">{body}</p>
+      <div className="mt-8 flex flex-wrap justify-center gap-4">
+        {tokenHash && !status ? (
+          <form method="post" action="/auth/confirm/verify">
+            <input type="hidden" name="token_hash" value={tokenHash} />
+            <input type="hidden" name="type" value={type} />
+            <button type="submit" className="ol-pill">Confirm my email</button>
+          </form>
+        ) : (
+          <Link href="/" className="ol-pill is-quiet">Go home</Link>
+        )}
+      </div>
+    </PageShell>
   );
 }

@@ -15,11 +15,6 @@
    "id": "service",
    "title": "Service",
    "hint": "Home services"
-  },
-  {
-   "id": "logistic",
-   "title": "Logistic",
-   "hint": "Delivery partner"
   }
  ],
  "store": {
