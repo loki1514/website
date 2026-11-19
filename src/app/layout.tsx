@@ -9,14 +9,14 @@ const mono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 const deva = Noto_Sans_Devanagari({ variable: "--font-deva", subsets: ["devanagari"], weight: ["400", "500", "600", "700"] });
 
 export const metadata: Metadata = {
-  title: "Partner with OneLocal · Sell to every phone in Latur",
+  title: "Partner with OneLocal · Grow your sales in Latur",
   description: "Restaurants, grocers, pharmacies and shops in Latur: join One Local and take orders on the app, with the One Local Partner app and POS.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${sans.variable} ${mono.variable} ${deva.variable} min-h-dvh bg-background font-sans text-foreground antialiased`}><MascotProvider>{children}<FloatingMascot /></MascotProvider></body>
+    <html lang="en">
+      <body className={`${sans.variable} ${mono.variable} ${deva.variable} min-h-dvh font-sans antialiased`}><MascotProvider>{children}<FloatingMascot /></MascotProvider></body>
     </html>
   );
 }

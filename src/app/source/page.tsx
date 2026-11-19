@@ -13,7 +13,7 @@ export default function SourcePage() {
         <p>{url ? <a href={url}>Download the source code</a> : <>The public source repository will be linked here before the site goes live. Until then, write to the OneLocal team and we will send it.</>}</p>
         <p className="text-sm">Our mascot is built with <a href="https://github.com/smontlouis/bible-strong-avatar-lab">Bible Strong Avatar Lab</a> by Stéphane Montlouis-Calixte (AGPL-3.0).</p>
       </div>
-      <Link href="/" className="ol-pill mt-10">Back to home</Link>
+      <Link href="/" className="ol-pill is-quiet mt-10">Back to home</Link>
     </PageShell>
   );
 }

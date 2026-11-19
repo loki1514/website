@@ -19,7 +19,7 @@ import { ArrowRight, Check, ChevronLeft, Copy, Pencil, Store, UtensilsCrossed, W
 import taxonomy from "@/lib/partner-taxonomy.json";
 import { API } from "@/lib/partners";
 import { MascotFollower, useMascot } from "@/components/mascot";
-import { DitherField, type Mood } from "@/components/landing/dither-field";
+import { ContourField } from "@/components/landing/contour-field";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn, randomKey } from "@/lib/utils";
 
@@ -43,6 +43,12 @@ const TYPE_ICONS = { store: Store, restaurant: UtensilsCrossed, service: Wrench 
 const TYPE_ART: Record<PartnerType, string> = { store: "grocery-and-daily-needs-grocery", restaurant: "grocery-and-daily-needs-bakery-and-sweets", service: "service-health" };
 const BILLING = ["Notebook or bill book", "Billing machine", "Another app", "Nothing yet"];
 const CALL_TIMES = ["Morning", "Afternoon", "Evening", "Any time"];
+// The three stages of getting started, as the home page names them. Shown once the application is in.
+const STAGES = [
+  ["Register your business", "Done. Our Latur team will call you to verify your details."],
+  ["Get ready to go live", "Add your PAN, documents and bank details, set up your catalogue, review your charges, and complete training and readiness checks."],
+  ["Start serving customers", "Go live after approval, receive orders or bookings, and track your activity."],
+];
 const EASE = [0.16, 1, 0.3, 1] as const;
 const icon = (slug: string) => `/onboarding/icons/${slug}.webp`;
 const storeImg = (slug: string) => `/onboarding/stores/${slug}.webp`;
@@ -56,8 +62,6 @@ function screensFor(t: PartnerType): Screen[] {
   const delivery: Screen[] = t === "store" || t === "restaurant" ? ["delivery"] : [];
   return ["name", "type", "you", ...what, "where", ...delivery, "papers", "call", "password", "review"];
 }
-// The field's mood per step: it changes as the form moves from "you" to "your shop" to "your login".
-const MOODS: Record<Screen, Mood> = { name: "lime", type: "lime", you: "mint", family: "lime", category: "lime", rtypes: "lime", where: "mint", delivery: "mint", papers: "mint", call: "lime", password: "forest", review: "lime" };
 
 type Setter = <K extends keyof Form>(k: K, v: Form[K]) => void;
 
@@ -85,18 +89,9 @@ export function Onboarding({ fonts }: { fonts: string }) {
   useEffect(() => { screenRef.current = screen; flowRef.current = flow; });
 
   useEffect(() => { const t = setTimeout(() => say("welcome", "waking"), 900); return () => clearTimeout(t); }, [say]);
-  const prefill = useRef<string | null>(null);
   // Resume on this browser.
   useEffect(() => {
     let first: Screen = "name";
-    // The home page asks "What's your shop called?" and hands the answer over here (same key as landing.tsx).
-    // Kept in a ref so it survives React's second effect run in development.
-    try {
-      const name = sessionStorage.getItem("onelocal.join-prefill");
-      if (name) { prefill.current = name; sessionStorage.removeItem("onelocal.join-prefill"); }
-    } catch { /* storage blocked */ }
-    const name = prefill.current;
-    if (name) setF(p => p.business_name ? p : { ...p, business_name: name });
     try {
       const raw = localStorage.getItem(STORAGE);
       if (raw) {
@@ -104,7 +99,6 @@ export function Onboarding({ fonts }: { fonts: string }) {
         const form: Form = { ...EMPTY, ...s.f };
         // An older draft may carry a partner type that is no longer offered.
         if (!(form.partner_type in TYPE_ICONS)) form.partner_type = "store";
-        if (name && !form.business_name) form.business_name = name;
         // Drafts saved before categories became multiple-choice carry only `category`.
         if (!Array.isArray(form.categories)) form.categories = [];
         if (!form.categories.length && form.category) form.categories = [form.category];
@@ -157,9 +151,12 @@ export function Onboarding({ fonts }: { fonts: string }) {
   const set: Setter = useCallback((k, v) => { setF(p => ({ ...p, [k]: v })); setError(null); }, []);
   const family = taxonomy.store.families.find(x => x.name === f.category_family);
   const catList = f.partner_type === "store" ? family?.categories ?? [] : taxonomy.service.categories;
-  const category = catList.find(c => c.name === f.categories[0]);
-  // The storefront follows the kind of business, then the chosen category once there is one.
-  const hero = ((f.partner_type === "store" || f.partner_type === "service") ? category?.store : null) ?? TYPE_ART[f.partner_type];
+  // The storefront follows the kind of business, then the category picked most recently: every tick brings that
+  // category's storefront forward, and unticking it goes back to the one picked before. `categories` keeps the order
+  // they were ticked in; a category with no storefront of its own is passed over for the latest one that has one.
+  const pickedArt = f.partner_type === "restaurant" ? undefined
+    : [...f.categories].reverse().map(n => catList.find(c => c.name === n)?.store).find(Boolean);
+  const hero = pickedArt ?? TYPE_ART[f.partner_type];
 
   const check = (s: Screen): string | null => {
     if (s === "name") return f.business_name.trim().length < 2 ? "Type your business name." : null;
@@ -225,33 +222,32 @@ export function Onboarding({ fonts }: { fonts: string }) {
     center: { x: 0, opacity: 1, transition: { duration: 0.4, ease: EASE } },
     exit: (d: number) => (reduce ? { opacity: 0 } : { x: d * -36, opacity: 0, transition: { duration: 0.18 } }),
   };
-  const mood = done ? "lime" : MOODS[screen];
-  const backClass = "grid size-9 shrink-0 place-items-center rounded-full transition-colors hover:bg-black/10 active:scale-95";
+  const backClass = "ol-bar-btn active:scale-95";
 
   return (
     <div data-onboarding className={`ol-landing ${fonts} relative min-h-dvh`}>
       <MascotFollower />
-      <DitherField mood={mood} className="fixed inset-0 size-full" />
-      <div data-tone={mood} className="relative flex min-h-dvh flex-col">
-        <header className="sticky top-3 z-30 px-3">
-          <div className="ol-glass mx-auto flex h-12 max-w-5xl items-center gap-2 rounded-full pr-2 pl-1.5" data-tone={mood}>
+      <ContourField mood="cream" still className="fixed inset-0 size-full" />
+      <div className="relative flex min-h-dvh flex-col">
+        <header data-tone="forest" className="sticky top-3 z-30 px-3">
+          <div className="ol-glass ol-bar mx-auto flex h-12 max-w-5xl items-center gap-2 rounded-full pr-2 pl-1.5">
             {index === 0 || done
               ? <Link href="/" aria-label="Back to home" className={backClass}><ChevronLeft className="size-5" /></Link>
               : <button type="button" onClick={back} aria-label="Back to the previous step" className={backClass}><ChevronLeft className="size-5" /></button>}
             <Link href="/" aria-label="OneLocal partners home" className="shrink-0 max-sm:hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={mood === "forest" ? "/brand/onelocal-logo-on-dark.png" : "/brand/onelocal-logo.png"} alt="OneLocal" className="h-5 w-auto" />
+              <img src="/brand/onelocal-logo-on-dark.png" alt="OneLocal" className="h-5 w-auto" />
             </Link>
             {done ? <span className="flex-1" /> : (
               <div className="mx-2 flex min-w-0 flex-1 items-center gap-3" role="progressbar" aria-label="Application progress" aria-valuemin={1} aria-valuemax={flow.length} aria-valuenow={index + 1}>
                 <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "var(--chip)" }}>
-                  <div className="h-full rounded-full bg-[#ffe44d] transition-[width] duration-500 ease-out" style={{ width: `${((index + 1) / flow.length) * 100}%`, boxShadow: "inset 0 0 0 2px var(--ink)" }} />
+                  <div className="h-full rounded-full bg-(--lime) transition-[width] duration-500 ease-out" style={{ width: `${((index + 1) / flow.length) * 100}%` }} />
                 </div>
                 <span className="shrink-0 text-xs font-bold tabular-nums">{index + 1} / {flow.length}</span>
               </div>
             )}
             <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-bold" title={saved === "saved" ? "Draft saved" : "Saves as you go"}>
-              <span className={cn("size-2 rounded-full", saved === "saving" ? "animate-pulse bg-(--marigold)" : saved === "saved" ? "bg-[#ffe44d] ring-2 ring-(--ink)" : "bg-current opacity-30")} />
+              <span className={cn("size-2 rounded-full", saved === "saving" ? "animate-pulse bg-(--lime)" : saved === "saved" ? "bg-(--lime)" : "bg-current opacity-30")} />
               <span className="max-md:hidden">{saved === "saving" ? "Saving…" : saved === "saved" ? "Draft saved" : ""}</span>
             </span>
             <LangToggle />
@@ -280,8 +276,8 @@ export function Onboarding({ fonts }: { fonts: string }) {
                     {screen === "review" && <Review f={f} goto={jump} />}
                   </motion.section>
                 </AnimatePresence>
-                <AnimatePresence>{error && <motion.p role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0, x: reduce ? 0 : [0, -6, 6, -3, 0] }} exit={{ opacity: 0 }} className="ol-card mt-6 w-fit px-4 py-2.5 text-[0.95rem] font-semibold" style={{ borderColor: "oklch(0.55 0.22 27)", boxShadow: "4px 5px 0 oklch(0.55 0.22 27)" }}>{error}</motion.p>}</AnimatePresence>
-                <button type="submit" disabled={busy} onMouseEnter={() => react("playful", 900)} className="ol-pill is-pop mt-7 min-w-44">
+                <AnimatePresence>{error && <motion.p role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0, x: reduce ? 0 : [0, -6, 6, -3, 0] }} exit={{ opacity: 0 }} className="ol-card is-error mt-6 w-fit px-4 py-2.5 text-[0.95rem] font-semibold">{error}</motion.p>}</AnimatePresence>
+                <button type="submit" disabled={busy} onMouseEnter={() => react("playful", 900)} className="ol-pill mt-7 min-w-44">
                   {busy ? "Saving…" : screen === "review" ? "Send application" : "Next"}<ArrowRight className="size-5" aria-hidden />
                 </button>
               </form>
@@ -302,11 +298,11 @@ export function Onboarding({ fonts }: { fonts: string }) {
   );
 }
 
-// The question, in pop lettering, with a line of help under it.
+// The question, with a line of help under it.
 function Q({ children, help }: { children: React.ReactNode; help?: React.ReactNode }) {
   return <>
-    <h1 className="ol-pop text-[clamp(2.5rem,6vw,4.5rem)]">{children}</h1>
-    {help && <p className="ol-pop-say mt-4 max-w-lg text-lg sm:text-xl">{help}</p>}
+    <h1 className="ol-title text-[clamp(2.1rem,4.6vw,3.4rem)]">{children}</h1>
+    {help && <p className="ol-lead mt-4 max-w-lg text-lg">{help}</p>}
   </>;
 }
 
@@ -323,7 +319,7 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
   const tipBox = (t: EventTarget | null) => t instanceof HTMLInputElement && !!t.dataset.olTip;
   return (
     <div onFocus={e => setOpen(tipBox(e.target))} onBlur={e => { if (!(e.currentTarget.contains(e.relatedTarget as Node | null) && tipBox(e.relatedTarget))) setOpen(false); }}>
-      <label className="block"><span className="ol-pop-say mb-2 block text-base">{label}{optional && <span className="font-normal"> (optional)</span>}</span>{children}</label>
+      <label className="block"><span className="ol-label mb-2 block text-base">{label}{optional && <span className="font-normal"> (optional)</span>}</span>{children}</label>
       <div ref={row} aria-hidden className="scroll-mb-28 transition-[height] duration-200 ease-out motion-reduce:transition-none" style={{ height: open ? "var(--ol-row, 64px)" : 0 }} />
     </div>
   );
@@ -331,14 +327,14 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
 function Input(props: React.InputHTMLAttributes<HTMLInputElement> & { onValue: (v: string) => void; tip?: string }) {
   const { react } = useMascot();
   const { onValue, className, tip, ...rest } = props;
-  return <input {...rest} data-ol-tip={tip} onFocus={() => react("listening", 1800)} onChange={e => { onValue(e.target.value); react("working", 900); }} className={cn("ol-pop-ask", className)} />;
+  return <input {...rest} data-ol-tip={tip} onFocus={() => react("listening", 1800)} onChange={e => { onValue(e.target.value); react("working", 900); }} className={cn("ol-field", className)} />;
 }
 // A tick box with its sentence, standing on the field.
 function Tick({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) {
   return (
-    <label className="ol-pop-say flex cursor-pointer items-start gap-3 text-base">
+    <label className="flex cursor-pointer items-start gap-3 text-base">
       <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="peer sr-only" />
-      <span className={cn("mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg border-[3px] border-(--ink) transition-colors peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-(--ink)", checked ? "bg-[#ffe44d]" : "bg-white")} style={{ WebkitTextStroke: 0 }}>{checked && <Check className="size-4 text-(--ink)" strokeWidth={4} />}</span>
+      <span className={cn("mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-(--forest)", checked ? "border-(--forest) bg-(--forest) text-(--lime)" : "border-(--field-line) bg-white")}>{checked && <Check className="size-4 text-(--ink)" strokeWidth={4} />}</span>
       <span>{children}</span>
     </label>
   );
@@ -359,8 +355,8 @@ function Type({ value, onPick }: { value: PartnerType; onPick: (t: PartnerType) 
         const I = TYPE_ICONS[t.id as PartnerType];
         return (
           <button key={t.id} type="button" role="radio" aria-checked={value === t.id} onClick={() => onPick(t.id as PartnerType)} className="ol-choice">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-(--ink) text-(--lime)"><I className="size-5" /></span>
-            <span className="min-w-0"><span className="ol-display block text-xl leading-tight">{t.title}</span><span className="block text-sm text-(--ink-soft)">{t.hint}</span></span>
+            <span className="grid size-11 shrink-0 place-items-center rounded-[0.8rem] bg-(--forest) text-(--lime)"><I className="size-5" /></span>
+            <span className="min-w-0"><span className="ol-display block text-xl leading-tight">{t.title}</span><span className="block text-sm text-(--soft)">{t.hint}</span></span>
           </button>
         );
       })}
@@ -391,7 +387,7 @@ function Family({ value, onPick }: { value: string; onPick: (v: string) => void 
         <button key={x.name} type="button" role="radio" aria-checked={value === x.name} onClick={() => onPick(x.name)} className="ol-choice">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={icon(x.icon)} alt="" className="size-14 shrink-0 rounded-2xl object-cover" />
-          <span className="min-w-0"><span className="ol-display block text-xl leading-tight">{x.name}</span><span className="block text-sm text-(--ink-soft)">{x.hint}</span></span>
+          <span className="min-w-0"><span className="ol-display block text-xl leading-tight">{x.name}</span><span className="block text-sm text-(--soft)">{x.hint}</span></span>
         </button>
       ))}
     </div>
@@ -436,7 +432,7 @@ function WhatYouSell({ f, onCategory, onToggle }: { f: Form; onCategory: (v: str
     <AnimatePresence initial={false}>
       {picked.map(cat => (
         <motion.div ref={cat.name === last ? items : undefined} key={cat.name} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mt-6 scroll-mb-28">
-          <p className="ol-pop-say mb-3 flex items-baseline justify-between gap-3 text-base"><span>{store ? `In ${cat.name}, you sell…` : `In ${cat.name}, you offer…`}</span><span className="shrink-0 tabular-nums">{cat.subcategories.filter(x => f.subcategories.includes(x)).length} picked</span></p>
+          <p className="ol-label mb-3 flex items-baseline justify-between gap-3 text-base"><span>{store ? `In ${cat.name}, you sell…` : `In ${cat.name}, you offer…`}</span><span className="shrink-0 tabular-nums">{cat.subcategories.filter(x => f.subcategories.includes(x)).length} picked</span></p>
           <div className="flex flex-wrap gap-2.5">{cat.subcategories.map(s => <Chip key={s} label={s} on={f.subcategories.includes(s)} onClick={() => onToggle(s)} />)}</div>
         </motion.div>
       ))}
@@ -492,11 +488,11 @@ function Call({ f, set }: { f: Form; set: Setter }) {
   const pick = (k: "billing" | "call_time", v: string) => set(k, f[k] === v ? "" : v);
   return <>
     <Q help="Two quick taps, so our first call is useful to you.">Before we <em>call</em> you</Q>
-    <p className="ol-pop-say mt-7 mb-3 text-base">How do you bill today?</p>
+    <p className="ol-label mt-7 mb-3 text-base">How do you bill today?</p>
     <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="How you bill today">
       {BILLING.map(b => <button key={b} type="button" role="radio" aria-checked={f.billing === b} onClick={() => pick("billing", b)} className="ol-chip">{b}</button>)}
     </div>
-    <p className="ol-pop-say mt-6 mb-3 text-base">When is a good time to call?</p>
+    <p className="ol-label mt-6 mb-3 text-base">When is a good time to call?</p>
     <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Best time to call">
       {CALL_TIMES.map(c => <button key={c} type="button" role="radio" aria-checked={f.call_time === c} onClick={() => pick("call_time", c)} className="ol-chip">{c}</button>)}
     </div>
@@ -522,10 +518,10 @@ function Password({ email, pw, setPw }: { email: string; pw: { password: string;
       <Field label="Type it again"><Input type={show ? "text" : "password"} tip="password_confirm" value={pw.confirm} onValue={v => setPw({ ...pw, confirm: v })} placeholder="Same password" autoComplete="new-password" /></Field>
     </div>
     <div className="mt-5 flex max-w-md items-center gap-3" aria-live="polite">
-      <div className="flex flex-1 gap-1.5">{[0, 1, 2, 3].map(i => <span key={i} className="h-2.5 flex-1 rounded-full border-2 border-[#020d05] transition-colors duration-300" style={{ background: i < score ? (score >= 3 ? "var(--lime)" : score === 2 ? "#ffe44d" : "oklch(0.65 0.22 27)") : "transparent" }} />)}</div>
-      {pw.password && <span className="ol-pop-say w-24 text-right text-sm">{label}</span>}
+      <div className="flex flex-1 gap-1.5">{[0, 1, 2, 3].map(i => <span key={i} className="h-2 flex-1 rounded-full transition-colors duration-300" style={{ background: i < score ? (score >= 3 ? "var(--leaf)" : score === 2 ? "oklch(0.7 0.13 70)" : "var(--danger)") : "var(--line)" }} />)}</div>
+      {pw.password && <span className="ol-lead w-24 text-right text-sm">{label}</span>}
     </div>
-    <p className="ol-pop-say mt-4 max-w-md text-sm">Never share your password, not even with the One Local team. We will never ask for it.</p>
+    <p className="ol-lead mt-4 max-w-md text-sm">Never share your password, not even with the One Local team. We will never ask for it.</p>
   </>;
 }
 
@@ -554,7 +550,7 @@ function Summary({ title, rows, onEdit }: { title: string; rows: [string, string
         <button type="button" onClick={onEdit} className="flex items-center gap-1.5 rounded-full px-2 py-1 text-sm font-bold underline underline-offset-4"><Pencil className="size-3.5" />Edit<span className="sr-only"> {title}</span></button>
       </div>
       <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        {rows.map(([k, v]) => <div key={k} className="min-w-0"><dt className="text-xs text-(--ink-soft)">{k}</dt><dd className="text-[0.95rem] font-semibold break-words">{v || "—"}</dd></div>)}
+        {rows.map(([k, v]) => <div key={k} className="min-w-0"><dt className="text-xs text-(--soft)">{k}</dt><dd className="text-[0.95rem] font-semibold break-words">{v || "—"}</dd></div>)}
       </dl>
     </section>
   );
@@ -578,22 +574,29 @@ function CopyButton({ text }: { text: string }) {
 function Done({ reference, existing, business, email, login, appCode }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="max-w-xl">
-      <h1 className="ol-pop text-[clamp(2.5rem,6vw,4.5rem)]">{existing ? <>We already have <em>your application</em></> : <>Application <em>sent!</em></>}</h1>
-      <p className="ol-pop-say mt-4 text-lg sm:text-xl">Thank you, {business}. Our Latur team will call you to verify your details and set up your shop.</p>
+      <h1 className="ol-title text-[clamp(2.1rem,4.6vw,3.4rem)]">{existing ? <>We already have <em>your application</em></> : <>Application <em>sent!</em></>}</h1>
+      <p className="ol-lead mt-4 text-lg sm:text-xl">Thank you, {business}. Our Latur team will call you to verify your details and set up your shop.</p>
       {reference
-        ? <div className="ol-card mt-7 w-fit px-6 py-4"><p className="text-sm font-semibold text-(--ink-soft)">{appCode ? "Your app code" : "Your reference"}</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
+        ? <div className="ol-card mt-7 w-fit px-6 py-4"><p className="text-sm font-semibold text-(--soft)">{appCode ? "Your app code" : "Your reference"}</p><p className="mt-1 font-mono text-2xl font-black tracking-wider">{reference}</p><CopyButton text={reference} /></div>
         : <p className="ol-card mt-7 px-4 py-3 text-[0.95rem]">We already have an application for this mobile number. For your safety we do not show its code here. Our Latur team will call you, or sign in to the app with your email and password.</p>}
-      {login && <p className="ol-pop-say mt-6 text-base">{appCode
+      {login && <p className="ol-lead mt-6 text-base">{appCode
         ? <>Your shop is ready in the One Local Partner app. Type the code above on its sign-in screen, or sign in with <b>{email}</b> and your password. Orders start once our team approves your shop.</>
         : login === "exists"
         ? <>This email already has a One Local login. Use that password in the One Local Partner app.</>
         : login === "confirm_email" ? <>Check <b>{email}</b> and confirm your email, then sign in to the One Local Partner app.</>
         : login === "failed" ? <>Your application is in, but we could not set up your login just now. We will help you with it when we call.</>
         : <>Your login is ready: sign in to the One Local Partner app with <b>{email}</b>. Your shop appears there once it is approved.</>}</p>}
-      <p className="ol-pop-say mt-6 text-base">One more part: add your PAN, documents and bank details, so our team can verify your business.</p>
+      <ol className="mt-7 space-y-4 border-t border-(--line) pt-6">
+        {STAGES.map(([head, body], i) => (
+          <li key={head} className="grid grid-cols-[2rem_1fr] gap-x-3.5">
+            <span className={cn("ol-display grid size-8 place-items-center rounded-lg text-sm tabular-nums", i === 0 ? "bg-(--forest) text-(--lime)" : "bg-(--chip) text-(--soft)")}>{i === 0 ? <Check className="size-4" strokeWidth={3} aria-label="Done" /> : i + 1}</span>
+            <div><p className="ol-label">{head}</p><p className="ol-lead text-[0.95rem]">{body}</p></div>
+          </li>
+        ))}
+      </ol>
       <div className="mt-6 flex flex-wrap items-center gap-4">
-        <Link href="/dashboard" className="ol-pill is-pop">Finish your application<ArrowRight className="size-5" aria-hidden /></Link>
-        <Link href="/" className="ol-pop-say text-base underline underline-offset-4">Back to home</Link>
+        <Link href="/dashboard" className="ol-pill">Finish your application<ArrowRight className="size-5" aria-hidden /></Link>
+        <Link href="/" className="ol-label text-base underline underline-offset-4">Back to home</Link>
       </div>
     </motion.div>
   );

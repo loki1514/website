@@ -32,10 +32,10 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Prom
           <form method="post" action="/auth/confirm/verify">
             <input type="hidden" name="token_hash" value={tokenHash} />
             <input type="hidden" name="type" value={type} />
-            <button type="submit" className="ol-pill is-pop">Confirm my email</button>
+            <button type="submit" className="ol-pill">Confirm my email</button>
           </form>
         ) : (
-          <Link href="/" className="ol-pill">Go home</Link>
+          <Link href="/" className="ol-pill is-quiet">Go home</Link>
         )}
       </div>
     </PageShell>
