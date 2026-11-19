@@ -77,7 +77,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<"idle" | "saving" | "saved">("idle");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ reference: string | null; existing: boolean; login?: string; appCode?: boolean } | null>(null);
+  const [done, setDone] = useState<{ reference: string | null; existing: boolean; login?: string; appCode?: boolean; approved?: boolean; blocked?: string } | null>(null);
   const key = useRef("");
 
   const flow = screensFor(f.partner_type);
@@ -181,7 +181,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
     const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, address, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
     const body = r ? await r.json().catch(() => ({})) : {};
     if (!r || !r.ok) throw new Error(body?.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
-    return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean };
+    return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean; approved?: boolean; blocked?: string };
   };
 
   const next = async () => {
@@ -190,7 +190,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
     if (e) { setError(e); say(screen === "password" && passwordOk(pw.password) && pw.password !== pw.confirm ? "passwordMismatch" : "error", "confused"); return; }
     if (screen === "review") {
       setBusy(true); say("submitting", "thinking");
-      try { const r = await post("submit"); say("success", "celebrate"); react("celebrate", 7000); setPw({ password: "", confirm: "" }); setDone({ reference: r.reference, existing: r.existing, login: r.login, appCode: r.app_code }); try { localStorage.removeItem(STORAGE); } catch { /* ignore */ } }
+      try { const r = await post("submit"); say("success", "celebrate"); react("celebrate", 7000); setPw({ password: "", confirm: "" }); setDone({ reference: r.reference, existing: r.existing, login: r.login, appCode: r.app_code, approved: r.approved, blocked: r.blocked }); try { localStorage.removeItem(STORAGE); } catch { /* ignore */ } }
       catch (err) { setError((err as Error).message); say("error", "sad"); }
       finally { setBusy(false); }
       return;
@@ -262,7 +262,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
 
         <main className="ol-form-main mx-auto grid w-full max-w-6xl flex-1 gap-x-12 px-5 pt-14 pb-10 md:px-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:px-10 lg:pt-10">
           <div className="min-w-0">
-            {done ? <Done reference={done.reference} existing={done.existing} business={f.business_name} email={f.email} login={done.login} appCode={done.appCode} /> : (
+            {done ? <Done reference={done.reference} existing={done.existing} business={f.business_name} email={f.email} login={done.login} appCode={done.appCode} approved={done.approved} blocked={done.blocked} /> : (
               <form noValidate onSubmit={e => { e.preventDefault(); void next(); }} className="max-w-xl">
                 <AnimatePresence mode="wait" custom={dir} initial={false}>
                   <motion.section key={screen} custom={dir} variants={variants} initial="enter" animate="center" exit="exit">
@@ -605,7 +605,15 @@ function SignInOffer() {
 }
 
 // After sending: the application's code, how to sign in, and what happens next, in that order.
-function Done({ reference, existing, business, email, login, appCode }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean }) {
+// What the server could tell about the store (database 0737): approved on the spot, or why it could not be made yet.
+const BLOCKED: Record<string, string> = {
+  phone_in_use: "This mobile number is already registered with another OneLocal business, so we could not set up your store yet. Our team will call you to sort it out.",
+  email_in_use: "This email is already registered with another OneLocal business, so we could not set up your store yet. Our team will call you to sort it out.",
+  email_not_confirmed: "Confirm your email first (we sent you a link). Your store is set up once it is confirmed.",
+  store_not_created: "We could not set up your store just now. Our team will set it up when they call you.",
+};
+
+function Done({ reference, existing, business, email, login, appCode, approved, blocked }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean; approved?: boolean; blocked?: string }) {
   const loginLine = appCode || login === "created" ? <>Sign in with <b className="break-all">{email}</b> and the password you just set.</>
     : login === "exists" ? <>This email already has a OneLocal login. Sign in with <b className="break-all">{email}</b> and that password.</>
     : login === "confirm_email" ? <>First confirm your email: we sent a link to <b className="break-all">{email}</b>.</>
@@ -615,10 +623,15 @@ function Done({ reference, existing, business, email, login, appCode }: { refere
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="max-w-xl">
       <span className="grid size-12 place-items-center rounded-full bg-(--forest) text-(--lime)"><Check className="size-6" strokeWidth={3} aria-hidden /></span>
-      <h1 className="ol-title mt-5 text-[clamp(2rem,4.4vw,3.1rem)] text-balance">{existing ? <>We already have <em>your application</em></> : <>Application <em>sent</em></>}</h1>
+      <h1 className="ol-title mt-5 text-[clamp(2rem,4.4vw,3.1rem)] text-balance">
+        {existing ? <>We already have <em>your application</em></> : approved ? <>You&apos;re <em>approved</em></> : <>Application <em>sent</em></>}
+      </h1>
       <p className="ol-lead mt-3 max-w-[34rem] text-lg text-pretty">
-        {existing ? <>Thank you, {business}. It is with our Latur team, who review every application.</> : <>Thank you, {business}. Our Latur team reviews every application and will call you to verify your details.</>}
+        {existing ? <>Thank you, {business}. It is with our Latur team, who review every application.</>
+          : approved ? <>Welcome to OneLocal, {business}. Your store is ready: sign in to your dashboard to set it up. Our Latur team will still call you to verify your details.</>
+          : <>Thank you, {business}. Our Latur team reviews every application and will call you to verify your details.</>}
       </p>
+      {blocked && BLOCKED[blocked] && <p role="status" className="ol-card mt-6 px-5 py-4 text-[0.95rem] font-semibold">{BLOCKED[blocked]}</p>}
 
       {reference ? (
         <section className="ol-card mt-8 overflow-hidden" aria-label="Your application code">

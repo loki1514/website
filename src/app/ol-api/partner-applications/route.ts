@@ -71,8 +71,10 @@ async function createLogin(email: string, password: string, meta: Record<string,
 // Links the login that was just created to the application and makes the partner's store (Pending until approved). The database only
 // accepts a login created in the last hour with the application's own email, so an email that already had an account is never linked.
 // Returns true when the application now has a login the app can sign in with the code for. Never throws: the sign-up has already worked.
-async function attachLogin(reference: string, userId: string): Promise<boolean> {
-  if (!SERVICE_KEY) return false;
+type Attached = { linked: boolean; approved: boolean; reason?: string };
+async function attachLogin(reference: string, userId: string): Promise<Attached> {
+  const none: Attached = { linked: false, approved: false };
+  if (!SERVICE_KEY) return none;
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_attach_login`, {
       method: "POST",
@@ -80,11 +82,29 @@ async function attachLogin(reference: string, userId: string): Promise<boolean> 
       body: JSON.stringify({ p_reference: reference, p_user: userId }),
       cache: "no-store",
     });
-    if (!r.ok) return false;
-    const j = (await r.json().catch(() => ({}))) as { linked?: boolean };
-    return j.linked === true;
+    if (!r.ok) return none;
+    // 0737: also whether the application was approved on the spot (auto-approval), or why its store could not be made
+    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; approved?: boolean; reason?: string };
+    return { linked: j.linked === true, approved: j.approved === true, reason: typeof j.reason === "string" ? j.reason : undefined };
   } catch {
-    return false;
+    return none;
+  }
+}
+
+// Counts this sign-up save per visitor and per mobile number (database 0733 / 0737, kind "signup"), so the check for a number or email
+// that is already registered cannot be used to test many of them. Skipped without the server key.
+async function signupAllowed(ip: string, phone: string): Promise<boolean> {
+  if (!SERVICE_KEY) return true;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_signin_throttle`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_kind: "signup", p_ip: ip, p_login: phone }),
+      cache: "no-store",
+    });
+    return r.ok ? (await r.json()) !== false : true;
+  } catch {
+    return true;
   }
 }
 
@@ -104,6 +124,7 @@ export async function POST(request: Request) {
       const submit = fields.stage !== "draft";
       const email = String(fields.email ?? "").trim().toLowerCase();
       const phone = String(fields.phone ?? "").replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, "");
+      if (!(await signupAllowed(forwarded ?? "", phone))) return Response.json({ detail: "Too many tries. Please wait a while and try again." }, { status: 429 });
       const password = fields.password;
       // The password is checked here and goes only to Supabase Auth, never into the application row.
       delete fields.password;
@@ -128,7 +149,7 @@ export async function POST(request: Request) {
         const formProblem = parsed.code === "P0400";
         return Response.json({ detail: formProblem && parsed.message ? parsed.message : "Please check the form and try again." }, { status: formProblem || r.status < 500 ? 400 : 502 });
       }
-      const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean };
+      const receipt = JSON.parse(text) as { reference: string | null; status: string; existing: boolean; login?: Login; app_code?: boolean; approved?: boolean; blocked?: string };
       // The application is saved first; only a new submission creates the login, so a failed save or a repeat
       // submit never makes a stray account. If the login fails the application still stands, and the answer says so.
       if (submit && !receipt.existing) {
@@ -137,7 +158,10 @@ export async function POST(request: Request) {
         }, SITE_URL ?? new URL(request.url).origin);
         receipt.login = made.state;
         // The reference is also the app code, but only when the login really belongs to this application.
-        receipt.app_code = made.state === "created" && !!made.id && !!receipt.reference ? await attachLogin(receipt.reference, made.id) : false;
+        const attached = made.state === "created" && !!made.id && !!receipt.reference ? await attachLogin(receipt.reference, made.id) : null;
+        receipt.app_code = attached?.linked ?? false;
+        receipt.approved = attached?.approved ?? false;
+        if (attached?.reason) receipt.blocked = attached.reason;
       }
       return Response.json(receipt, { status: 201 });
     }
