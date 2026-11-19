@@ -615,7 +615,7 @@ const BLOCKED: Record<string, string> = {
 
 function Done({ reference, existing, business, email, login, appCode, approved, blocked }: { reference: string | null; existing: boolean; business: string; email: string; login?: string; appCode?: boolean; approved?: boolean; blocked?: string }) {
   const loginLine = appCode || login === "created" ? <>Sign in with <b className="break-all">{email}</b> and the password you just set.</>
-    : login === "exists" ? <>This email already has a OneLocal login. Sign in with <b className="break-all">{email}</b> and that password.</>
+    : login === "exists" ? <>This email already had a OneLocal login, so your store uses it. Sign in with that login: its password, or Google in the Partner app.</>
     : login === "confirm_email" ? <>First confirm your email: we sent a link to <b className="break-all">{email}</b>.</>
     : login === "failed" ? <>We could not set up your login just now. Our team will help you with it on the call.</>
     : <>Sign in with <b className="break-all">{email}</b> and your password.</>;

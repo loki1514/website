@@ -91,6 +91,26 @@ async function attachLogin(reference: string, userId: string): Promise<Attached>
   }
 }
 
+// The email already has a OneLocal login (a customer's, say: one person, one login). Database 0738 links that login to the
+// application when its email is confirmed, then makes and approves the store like a new login. The partner signs in with it.
+async function attachExistingLogin(reference: string): Promise<Attached> {
+  const none: Attached = { linked: false, approved: false };
+  if (!SERVICE_KEY) return none;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ol_partner_application_attach_existing_login`, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: SERVICE_KEY, authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ p_reference: reference }),
+      cache: "no-store",
+    });
+    if (!r.ok) return none;
+    const j = (await r.json().catch(() => ({}))) as { linked?: boolean; approved?: boolean; reason?: string };
+    return { linked: j.linked === true, approved: j.approved === true, reason: typeof j.reason === "string" ? j.reason : undefined };
+  } catch {
+    return none;
+  }
+}
+
 // Counts this sign-up save per visitor and per mobile number (database 0733 / 0737, kind "signup"), so the check for a number or email
 // that is already registered cannot be used to test many of them. Skipped without the server key.
 async function signupAllowed(ip: string, phone: string): Promise<boolean> {
@@ -158,7 +178,10 @@ export async function POST(request: Request) {
         }, SITE_URL ?? new URL(request.url).origin);
         receipt.login = made.state;
         // The reference is also the app code, but only when the login really belongs to this application.
-        const attached = made.state === "created" && !!made.id && !!receipt.reference ? await attachLogin(receipt.reference, made.id) : null;
+        const attached = !receipt.reference ? null
+          : made.state === "created" && made.id ? await attachLogin(receipt.reference, made.id)
+          : made.state === "exists" ? await attachExistingLogin(receipt.reference)
+          : null;
         receipt.app_code = attached?.linked ?? false;
         receipt.approved = attached?.approved ?? false;
         if (attached?.reason) receipt.blocked = attached.reason;
