@@ -4,6 +4,7 @@
 //                                        Only for an existing login: a code never creates an account.
 //   {action: "verify", login, code}    → checks the code
 //   {login, password}                  → checks the password
+//   {action: "reset", login}           → Supabase emails the link to set a new password (email logins only; it opens /auth/reset on the POS server)
 // A check that passes answers only the refresh token: the dashboard hands it to the Partner web app once (its address fragment,
 // lib/auth/web_handoff.dart in one-local-flutter), which starts its own session from it. Nothing is kept here: no cookie, and no log of
 // the password, the code or the token.
@@ -102,12 +103,21 @@ export async function POST(request: Request) {
   const byPhone = "phone" in who;
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const key = "phone" in who ? who.phone : who.email;
-  const kind = p.action === "send" ? "send" : p.action === "verify" ? "verify" : "password";
+  const kind = p.action === "send" || p.action === "reset" ? "send" : p.action === "verify" ? "verify" : "password";
   if (!(await allowed(kind, forwarded ?? "", key))) {
     return say(kind === "send" ? "Please wait a few minutes before asking for another code." : "Too many tries. Wait a few minutes and try again.", 429);
   }
 
   try {
+    if (p.action === "reset") {
+      if (byPhone) return say("Type the email on your account to get the reset link, or sign in with a code.");
+      const { r, code, msg } = await auth("recover", who, forwarded);
+      if (r.status === 429 || code.includes("rate_limit") || msg.includes("seconds")) return say("Please wait a minute before asking for another email.", 429);
+      // The same answer whether or not the email has an account.
+      if (r.ok || r.status < 500) return Response.json({ sent: true });
+      return say("We could not send the email right now. Try again in a minute, or sign in with a code.", 502);
+    }
+
     if (p.action === "send") {
       // a business's registered number with no login of its own still gets the code (0743): a number-only login holds it
       const owner = byPhone ? await businessOwner(key) : null;

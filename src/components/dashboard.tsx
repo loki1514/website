@@ -140,6 +140,7 @@ function SignIn({ onSignedIn }: { onSignedIn: (login: string, session: string) =
   const [wait, setWait] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);   // after "Forgot password?": the reset email is on its way
   const first = useRef<HTMLInputElement>(null);
   const codeBox = useRef<HTMLInputElement>(null);
 
@@ -148,7 +149,7 @@ function SignIn({ onSignedIn }: { onSignedIn: (login: string, session: string) =
 
   const digits = phone.replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, "");
   const target = channel === "phone" ? digits : email.trim().toLowerCase();
-  const switchWay = (w: Way) => { setWay(w); setError(null); setSentTo(null); setCode(""); };
+  const switchWay = (w: Way) => { setWay(w); setError(null); setNotice(null); setSentTo(null); setCode(""); };
 
   const send = async () => {
     if (channel === "phone" ? !/^[6-9]\d{9}$/.test(digits) : !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(target)) {
@@ -176,6 +177,16 @@ function SignIn({ onSignedIn }: { onSignedIn: (login: string, session: string) =
     const r = await ask({ login: login.trim(), password });
     setBusy(false);
     if (r.ok && r.session) { setPassword(""); onSignedIn(login.trim(), r.session); return; }
+    setError(r.detail);
+  };
+  const forgot = async () => {
+    const mail = login.trim().toLowerCase();
+    if (busy) return;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { setNotice(null); setError("Type the email on your account above, then tap Forgot password."); return; }
+    setBusy(true); setError(null); setNotice(null);
+    const r = await ask({ action: "reset", login: mail });
+    setBusy(false);
+    if (r.ok && r.sent) { setNotice(`If ${maskEmail(mail)} is on a partner account, we have emailed it a link to set a new password. It can take a minute.`); return; }
     setError(r.detail);
   };
   const submit = (e: React.FormEvent) => { e.preventDefault(); if (busy) return; void (way === "password" ? withPassword() : sentTo ? verify() : send()); };
@@ -248,8 +259,10 @@ function SignIn({ onSignedIn }: { onSignedIn: (login: string, session: string) =
             </span>
           </label>
         </div>
+        <button type="button" onClick={() => void forgot()} disabled={busy} className="mt-3 font-semibold text-(--fg) underline underline-offset-4 text-[0.95rem]">Forgot password?</button>
       </>}
 
+      {notice && <p role="status" className="ol-card mt-5 px-4 py-2.5 text-[0.95rem] font-semibold">{notice}</p>}
       {error && <p role="alert" className="ol-card is-error mt-5 px-4 py-2.5 text-[0.95rem] font-semibold">{error}</p>}
       <button type="submit" disabled={busy} className="ol-pill mt-6 w-full">
         {busy ? (way === "code" && !sentTo ? "Sending…" : "Signing in…") : way === "code" && !sentTo ? "Send code" : "Sign in"}
