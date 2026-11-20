@@ -414,7 +414,12 @@ function You({ f, set }: { f: Form; set: Setter }) {
     <div className="mt-7 grid gap-4">
       <Field label="Owner's full name"><Input value={f.owner_name} tip="owner_name" onValue={v => set("owner_name", v)} placeholder="Full name" autoComplete="name" /></Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Mobile number"><Input value={f.phone} tip="phone" onValue={v => set("phone", v)} placeholder="10-digit number" inputMode="tel" autoComplete="tel-national" /></Field>
+        <Field label="Mobile number">
+          <span className="relative block">
+            <span aria-hidden className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-[1.0625rem]">+91</span>
+            <Input value={f.phone} tip="phone" onValue={v => set("phone", v)} placeholder="10-digit number" inputMode="tel" autoComplete="tel-national" aria-label="Mobile number, India +91" style={{ paddingLeft: "3.5rem" }} />
+          </span>
+        </Field>
         <Field label="Email"><Input value={f.email} tip="email" onValue={v => set("email", v)} placeholder="you@business.com" type="email" autoComplete="email" /></Field>
       </div>
       <Tick checked={f.consent} onChange={v => { set("consent", v); if (v) react("happy", 1200); }}>Save my application and let One Local contact me about joining. My details are used only for onboarding.</Tick>
