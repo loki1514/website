@@ -174,7 +174,8 @@ export async function POST(request: Request) {
       if (!fields || typeof fields !== "object" || Array.isArray(fields)) return bad("Please check the form and try again.");
       const submit = fields.stage !== "draft";
       const email = String(fields.email ?? "").trim().toLowerCase();
-      const phone = String(fields.phone ?? "").replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, "");
+      // 0761: the owner's own number (the login) when sent, else the one number the older form sends
+      const phone = String(fields.owner_phone ?? fields.phone ?? "").replace(/\D/g, "").replace(/^(91|0)(?=[6-9]\d{9}$)/, "");
       if (!(await signupAllowed(forwarded ?? "", phone))) return Response.json({ detail: "Too many tries. Please wait a while and try again." }, { status: 429 });
       const password = fields.password;
       // The password is checked here and goes only to Supabase Auth, never into the application row.

@@ -28,6 +28,8 @@ import { cn, randomKey } from "@/lib/utils";
 type PartnerType = "store" | "restaurant" | "service";
 type Form = {
   partner_type: PartnerType; business_name: string; owner_name: string; phone: string; email: string; consent: boolean;
+  // 0761: `phone` is the owner's own number (the login, proven with the SMS code); `business_phone` is the shop's, blank = the same
+  business_phone: string;
   category_family: string; category: string; categories: string[]; subcategories: string[];
   // The address in parts (0731: Master and the Partner app read the parts); `address` is them joined, for the review queue.
   address_line: string; locality: string; landmark: string; address: string; pin_code: string; location_lat: number | null; location_lng: number | null; outlets: string; gstin: string; fssai: string; services: string[]; own_delivery: boolean; whatsapp_ok: boolean;
@@ -36,7 +38,7 @@ type Form = {
   // 0740: the number the partner proved with the SMS code (empty until then; a changed number must be proven again)
   phone_verified: string;
 };
-const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address_line: "", locality: "", landmark: "", address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "", phone_verified: "" };
+const EMPTY: Form = { partner_type: "store", business_name: "", owner_name: "", phone: "", business_phone: "", email: "", consent: false, category_family: "", category: "", categories: [], subcategories: [], address_line: "", locality: "", landmark: "", address: "", pin_code: "", location_lat: null, location_lng: null, outlets: "1", gstin: "", fssai: "", services: ["delivery"], own_delivery: false, whatsapp_ok: true, billing: "", call_time: "", phone_verified: "" };
 type Screen = "name" | "type" | "you" | "verify" | "family" | "category" | "rtypes" | "where" | "delivery" | "papers" | "call" | "password" | "review";
 // Drafts saved on this browser by the older, longer screens point at steps that are now split up.
 const OLD_SCREENS: Record<string, Screen> = { start: "name", subcats: "category", business: "where", finish: "password", account: "password" };
@@ -168,7 +170,7 @@ export function Onboarding({ fonts }: { fonts: string }) {
 
   const check = (s: Screen): string | null => {
     if (s === "name") return f.business_name.trim().length < 2 ? "Type your business name." : null;
-    if (s === "you") return f.owner_name.trim().length < 2 ? "Type the owner's full name." : !phoneOk(f.phone) ? "Type a 10-digit mobile number." : !emailOk(f.email) ? "Type a valid email." : !f.consent ? "Please tick the box so we can save your application." : null;
+    if (s === "you") return f.owner_name.trim().length < 2 ? "Type the owner's full name." : !phoneOk(f.phone) ? "Type your 10-digit mobile number." : f.business_phone.trim() && !phoneOk(f.business_phone) ? "Type a 10-digit business mobile, or leave it blank." : !emailOk(f.email) ? "Type a valid email." : !f.consent ? "Please tick the box so we can save your application." : null;
     if (s === "family") return f.category_family ? null : "Choose one.";
     if (s === "category") return !f.categories.length ? "Choose at least one category." : f.subcategories.length > 30 ? "Tick up to 30 items." : !f.subcategories.length ? (f.partner_type === "service" ? "Tick at least one service you offer." : "Tick at least one thing you sell.") : null;
     if (s === "verify") return f.phone_verified === digits10(f.phone) ? null : !/^\d{6}$/.test(code) ? "Type the 6-digit code we sent to your number." : null;
@@ -182,10 +184,10 @@ export function Onboarding({ fonts }: { fonts: string }) {
   };
 
   const post = async (stage: "draft" | "submit") => {
-    const { billing, call_time, ...fields } = f;
+    const { billing, call_time, business_phone, ...fields } = f;
     const notes = [billing && `Bills today with: ${billing}`, call_time && `Best time to call: ${call_time}`].filter(Boolean).join(". ");
     const address = fullAddress(f);
-    const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, address, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
+    const r = await fetch(`${API}/partner-applications`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...fields, owner_phone: digits10(f.phone), phone: business_phone.trim() ? digits10(business_phone) : digits10(f.phone), address, gstin: f.gstin.toUpperCase(), ...(notes ? { notes } : {}), stage, submit_key: key.current, ...(stage === "submit" ? { password: pw.password } : {}) }) }).catch(() => null);
     const body = r ? await r.json().catch(() => ({})) : {};
     if (!r || !r.ok) throw new Error(body?.detail ?? "We couldn't reach OneLocal. Check your connection and try again.");
     return body as { reference: string | null; existing: boolean; status: string; login?: string; app_code?: boolean; blocked?: string };
@@ -223,8 +225,8 @@ export function Onboarding({ fonts }: { fonts: string }) {
         if (r.existing && !r.reference) {
           setBusy(false); setSaved("idle");
           setError(r.status === "draft"
-            ? "This number already has an application started in the OneLocal Partner app. Continue it there, or use another number."
-            : "This number already has a partner application with OneLocal. Sign in to see it, or use another number.");
+            ? "This business number already has an application started in the OneLocal Partner app. Continue it there, or use another number."
+            : "This business number already has a partner application with OneLocal. Sign in to see it, or use another number.");
           say("error", "confused"); return;
         }
         setSaved("saved");
@@ -421,18 +423,24 @@ function Type({ value, onPick }: { value: PartnerType; onPick: (t: PartnerType) 
 function You({ f, set }: { f: Form; set: Setter }) {
   const { react } = useMascot();
   return <>
-    <Q help="Our Latur team calls this number to verify your business. Your email becomes your login.">Who do we <em>call</em>?</Q>
+    <Q help="Your mobile is your owner number: you sign in with it, and one sign-in can hold several businesses. Our Latur team calls it to verify your business.">Who do we <em>call</em>?</Q>
     <div className="mt-7 grid gap-4">
       <Field label="Owner's full name"><Input value={f.owner_name} tip="owner_name" onValue={v => set("owner_name", v)} placeholder="Full name" autoComplete="name" /></Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Mobile number">
+        <Field label="Your mobile (owner number)">
           <span className="relative block">
             <span aria-hidden className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-[1.0625rem]">+91</span>
-            <Input value={f.phone} tip="phone" onValue={v => set("phone", v)} placeholder="10-digit number" inputMode="tel" autoComplete="tel-national" aria-label="Mobile number, India +91" style={{ paddingLeft: "3.5rem" }} />
+            <Input value={f.phone} tip="phone" onValue={v => set("phone", v)} placeholder="10-digit number" inputMode="tel" autoComplete="tel-national" aria-label="Your mobile, the owner number, India +91" style={{ paddingLeft: "3.5rem" }} />
           </span>
         </Field>
         <Field label="Email"><Input value={f.email} tip="email" onValue={v => set("email", v)} placeholder="you@business.com" type="email" autoComplete="email" /></Field>
       </div>
+      <Field label="Business mobile (optional)">
+        <span className="relative block">
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-[1.0625rem]">+91</span>
+          <Input value={f.business_phone} tip="business_phone" onValue={v => set("business_phone", v)} placeholder="Leave blank if it’s the same as yours" inputMode="tel" autoComplete="off" aria-label="Business mobile, India +91, leave blank if the same as yours" style={{ paddingLeft: "3.5rem" }} />
+        </span>
+      </Field>
       <Tick checked={f.consent} onChange={v => { set("consent", v); if (v) react("happy", 1200); }}>Save my application and let One Local contact me about joining. My details are used only for onboarding.</Tick>
     </div>
   </>;
@@ -636,7 +644,7 @@ function Review({ f, goto }: { f: Form; goto: (s: Screen) => void }) {
   return <>
     <Q help="Tap Edit to change anything.">All <em>good</em>?</Q>
     <div className="mt-7 grid gap-4">
-      <Summary title="You" onEdit={() => goto("you")} rows={[["Business", f.business_name], ["Kind", type], ["Owner", f.owner_name], ["Mobile", f.phone], ["Email", f.email]]} />
+      <Summary title="You" onEdit={() => goto("you")} rows={[["Business", f.business_name], ["Kind", type], ["Owner", f.owner_name], ["Your mobile", f.phone], ["Business mobile", f.business_phone.trim() || "Same as yours"], ["Email", f.email]]} />
       <Summary title={what.title} onEdit={() => goto(what.screen)} rows={what.rows} />
       <Summary title="Where" onEdit={() => goto("where")} rows={where} />
     </div>
