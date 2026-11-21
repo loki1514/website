@@ -217,7 +217,18 @@ export function Onboarding({ fonts }: { fonts: string }) {
     // The contact step is where the partner agrees to be contacted, so that is when the draft first reaches One Local.
     if (screen === "you") {
       setBusy(true); setSaved("saving");
-      try { await post("draft"); setSaved("saved"); } catch (err) { setBusy(false); setSaved("idle"); setError((err as Error).message); say("error", "sad"); return; }
+      try {
+        const r = await post("draft");
+        // another open application holds this number (one per number per city), so this draft was not saved
+        if (r.existing && !r.reference) {
+          setBusy(false); setSaved("idle");
+          setError(r.status === "draft"
+            ? "This number already has an application started in the OneLocal Partner app. Continue it there, or use another number."
+            : "This number already has a partner application with OneLocal. Sign in to see it, or use another number.");
+          say("error", "confused"); return;
+        }
+        setSaved("saved");
+      } catch (err) { setBusy(false); setSaved("idle"); setError((err as Error).message); say("error", "sad"); return; }
       // a number not proven yet gets its code now, on the way to the code step
       if (f.phone_verified !== digits10(f.phone) && codeSentTo !== digits10(f.phone)) {
         try { await phoneCall({ action: "send" }); setCodeSentTo(digits10(f.phone)); setCode(""); }
